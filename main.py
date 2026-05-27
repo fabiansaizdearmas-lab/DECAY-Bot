@@ -235,6 +235,30 @@ def create_suggestions_embed():
     return embed
 
 
+def create_contributions_embed():
+    embed = make_embed(
+        "Guild Contributions",
+        "Use this channel to record every time you contribute resources to the **DECAY** guild.\n\n"
+        "Keeping track of contributions helps us see who is actively supporting the guild and investing in our progress.\n\n"
+        "**WHAT TO POST:**\n"
+        "- Your **Roblox username**\n"
+        "- The **resource or feature** you contributed to\n"
+        "- The **amount** contributed\n"
+        "- A **screenshot** as proof, if possible\n\n"
+        "**FORMAT:**\n"
+        "```\nRoblox username:\nFeature / room:\nAmount contributed:\nProof:\n```\n"
+        "**EXAMPLES:**\n"
+        "- Leveling Chambers contributions\n"
+        "- Mining Rooms contributions\n"
+        "- Future guild upgrades\n"
+        "- Any other important guild resource investment\n\n"
+        "Thank you for helping **DECAY** grow stronger."
+    )
+    embed.set_thumbnail(url=DECAY_LOGO_URL)
+    embed.set_footer(text="DECAY Guild Contributions")
+    return embed
+
+
 def create_ticket_questions_embed(member):
     embed = make_embed(
         "DECAY Guild Application",
@@ -376,6 +400,13 @@ async def rulesembed(ctx):
 async def suggestionsembed(ctx):
     await ctx.send(embed=create_suggestions_embed())
     await send_log(ctx.guild, "Suggestions Embed Sent", f"**Moderator:** {ctx.author.mention}\n**Channel:** {ctx.channel.mention}")
+
+
+@bot.command()
+@owner_only()
+async def contributionsembed(ctx):
+    await ctx.send(embed=create_contributions_embed())
+    await send_log(ctx.guild, "Contributions Embed Sent", f"**Moderator:** {ctx.author.mention}\n**Channel:** {ctx.channel.mention}")
 
 
 @bot.command()
@@ -665,6 +696,7 @@ async def removelog(ctx, log_id: int = None):
 @guildapplysetup.error
 @rulesembed.error
 @suggestionsembed.error
+@contributionsembed.error
 @ticketclose.error
 @ticketdelete.error
 async def command_error(ctx, error):
