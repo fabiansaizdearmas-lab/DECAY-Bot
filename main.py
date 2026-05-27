@@ -8,12 +8,14 @@ from datetime import datetime, timedelta, timezone
 DB_PATH = "modlogs_v2.db"
 
 DECAY_RED = 0xB30000
+OWNER_ROLE_ID = 1509264947006279700
 WELCOME_CHANNEL_ID = 1509285951816335411
 RULES_CHANNEL_ID = 1509281427689177220
 ANNOUNCEMENTS_CHANNEL_ID = 1509273242580422777
 GUILD_APPLY_CHANNEL_ID = 1509295180820381716
 GUILD_TICKET_CATEGORY_ID = 1509302737399975966
 WELCOME_BANNER_URL = "https://raw.githubusercontent.com/fabiansaizdearmas-lab/DECAY-Bot/main/DECAYBanner.png"
+DECAY_LOGO_URL = "https://raw.githubusercontent.com/fabiansaizdearmas-lab/DECAY-Bot/main/DECAYLogo"
 STAFF_ROLE_IDS = [1509264947006279700, 1509302357631041716, 1509302416519204894]
 
 intents = discord.Intents.default()
@@ -36,12 +38,18 @@ def make_embed(title, description, color=DECAY_RED):
     return embed
 
 
-def make_success_embed(title, description):
-    return make_embed(title, description, discord.Color.green())
-
-
 def make_error_embed(description):
     return make_embed("Command Error", description, discord.Color.red())
+
+
+def is_owner_role_member(member):
+    return isinstance(member, discord.Member) and any(role.id == OWNER_ROLE_ID for role in member.roles)
+
+
+def owner_only():
+    async def predicate(ctx):
+        return is_owner_role_member(ctx.author)
+    return commands.check(predicate)
 
 
 def init_db():
@@ -160,12 +168,6 @@ def can_punish(ctx, target):
     return True, None
 
 
-def has_ticket_staff_role(member):
-    if member.guild_permissions.administrator:
-        return True
-    return any(role.id in STAFF_ROLE_IDS for role in member.roles)
-
-
 def safe_channel_name(text):
     text = text.lower()
     text = re.sub(r"[^a-z0-9-]", "-", text)
@@ -178,20 +180,25 @@ def create_apply_embed():
         "Apply for DECAY",
         (
             "Do you want to join us?\n\n"
-            "**DECAY** is our main guild, built for the best and most dedicated players. "
-            "We are looking for active, competitive and loyal members who want to improve and represent DECAY.\n\n"
-            "**Requirements**\n"
-            "• Own strong units from the current **top meta**\n"
-            "• Have an **advanced understanding** of the game\n"
-            "• Be **competitive** and motivated to improve\n"
-            "• Understand, or be willing to learn, **leaderboard runs**\n"
-            "• Stay **loyal** and committed to **DECAY**\n"
-            "• Be respectful, mature and able to work with other guild members\n\n"
-            "**Extra Information**\n"
-            "Applying does **not** guarantee acceptance. Staff may ask for extra information about your units, progress, activity and experience.\n\n"
-            "If you believe you are ready to represent **DECAY**, press the button below."
+            "**DECAY** is our main guild, built for top-level players who want to compete, improve, "
+            "and represent one of the strongest communities in the game.\n\n"
+            "We are looking for dedicated members with strong units, deep game knowledge, competitive mentality, "
+            "and true loyalty to **DECAY**.\n\n"
+            "**REQUIREMENTS:**\n"
+            "⚔️ **Meta units** — Own strong units from the current **top meta**\n"
+            "🧠 **Game knowledge** — Have an **advanced understanding** of the game\n"
+            "🔥 **Competitive mindset** — Be competitive and motivated to improve\n"
+            "🧬 **Leaderboard runs** — Understand, or be willing to learn, **leaderboard strategies and team coordination**\n"
+            "💎 **Guild investment** — Be willing to contribute a significant amount of resources into **guild features** such as **Leveling Chambers**, **Mining Rooms**, and future guild upgrades\n"
+            "🩸 **Loyalty** — Stay loyal and committed to **DECAY**\n"
+            "🤝 **Teamwork** — Be respectful, mature, and able to work with other guild members\n\n"
+            "**EXTRA INFORMATION:**\n"
+            "Applying does **not** guarantee acceptance.\n\n"
+            "Staff may ask for extra information about your units, progress, activity, experience, and availability.\n\n"
+            "If you believe you are ready to represent **DECAY**, press the button below and start your application."
         ),
     )
+    embed.set_thumbnail(url=DECAY_LOGO_URL)
     embed.set_footer(text="DECAY Guild Applications")
     return embed
 
@@ -209,6 +216,7 @@ def create_ticket_questions_embed(member):
             "A staff member will review your application soon. Please be patient."
         ),
     )
+    embed.set_thumbnail(url=DECAY_LOGO_URL)
     embed.set_footer(text="DECAY Guild Applications")
     return embed
 
@@ -324,17 +332,14 @@ async def ping(ctx):
 
 
 @bot.command()
-@commands.has_permissions(manage_guild=True)
+@owner_only()
 async def guildapplysetup(ctx):
-    embed = create_apply_embed()
-    await ctx.send(embed=embed, view=GuildApplyView())
+    await ctx.send(embed=create_apply_embed(), view=GuildApplyView())
 
 
 @bot.command()
+@owner_only()
 async def ticketclose(ctx):
-    if not has_ticket_staff_role(ctx.author):
-        await ctx.send(embed=make_error_embed("You do not have the **required staff role** to close tickets."))
-        return
     if not ctx.channel.topic or "DECAY_APPLICATION_USER:" not in ctx.channel.topic:
         await ctx.send(embed=make_error_embed("This command can only be used inside a **DECAY application ticket**."))
         return
@@ -353,10 +358,8 @@ async def ticketclose(ctx):
 
 
 @bot.command()
+@owner_only()
 async def ticketdelete(ctx):
-    if not has_ticket_staff_role(ctx.author):
-        await ctx.send(embed=make_error_embed("You do not have the **required staff role** to delete tickets."))
-        return
     if not ctx.channel.topic or "DECAY_APPLICATION_USER:" not in ctx.channel.topic:
         await ctx.send(embed=make_error_embed("This command can only be used inside a **DECAY application ticket**."))
         return
@@ -366,7 +369,7 @@ async def ticketdelete(ctx):
 
 
 @bot.command()
-@commands.has_permissions(moderate_members=True)
+@owner_only()
 async def warn(ctx, target_text: str = None, *, reason=None):
     if not target_text:
         await ctx.send(embed=make_error_embed("Missing **user**. Usage: `!warn @user reason`"))
@@ -384,7 +387,7 @@ async def warn(ctx, target_text: str = None, *, reason=None):
 
 
 @bot.command()
-@commands.has_permissions(moderate_members=True)
+@owner_only()
 async def timeout(ctx, target_text: str = None, duration_text: str = None, *, reason=None):
     if not target_text or not duration_text:
         await ctx.send(embed=make_error_embed("Missing **arguments**. Usage: `!timeout @user 1h reason` or `!timeout @user 2d reason`"))
@@ -407,7 +410,7 @@ async def timeout(ctx, target_text: str = None, duration_text: str = None, *, re
 
 
 @bot.command()
-@commands.has_permissions(moderate_members=True)
+@owner_only()
 async def untimeout(ctx, target_text: str = None, *, reason=None):
     if not target_text:
         await ctx.send(embed=make_error_embed("Missing **user**. Usage: `!untimeout @user reason`"))
@@ -426,7 +429,7 @@ async def untimeout(ctx, target_text: str = None, *, reason=None):
 
 
 @bot.command()
-@commands.has_permissions(kick_members=True)
+@owner_only()
 async def kick(ctx, target_text: str = None, *, reason=None):
     if not target_text:
         await ctx.send(embed=make_error_embed("Missing **user**. Usage: `!kick @user reason`"))
@@ -445,7 +448,7 @@ async def kick(ctx, target_text: str = None, *, reason=None):
 
 
 @bot.command()
-@commands.has_permissions(ban_members=True)
+@owner_only()
 async def ban(ctx, target_text: str = None, duration_text: str = None, *, reason=None):
     if not target_text:
         await ctx.send(embed=make_error_embed("Missing **user**. Usage: `!ban @user reason` or `!ban @user 7d reason`"))
@@ -476,7 +479,7 @@ async def ban(ctx, target_text: str = None, duration_text: str = None, *, reason
 
 
 @bot.command()
-@commands.has_permissions(ban_members=True)
+@owner_only()
 async def unban(ctx, target_text: str = None, *, reason=None):
     if not target_text:
         await ctx.send(embed=make_error_embed("Missing **user ID**. Usage: `!unban userID reason`"))
@@ -496,7 +499,7 @@ async def unban(ctx, target_text: str = None, *, reason=None):
 
 
 @bot.command()
-@commands.has_permissions(manage_messages=True)
+@owner_only()
 async def clear(ctx, amount: int = None):
     if amount is None:
         await ctx.send(embed=make_error_embed("Missing **amount**. Usage: `!clear 10`"))
@@ -513,7 +516,7 @@ async def clear(ctx, amount: int = None):
 
 
 @bot.command()
-@commands.has_permissions(moderate_members=True)
+@owner_only()
 async def modlog(ctx, target_text: str = None):
     if not target_text:
         await ctx.send(embed=make_error_embed("Missing **user**. Usage: `!modlog @user`"))
@@ -547,7 +550,7 @@ async def modlog(ctx, target_text: str = None):
 
 
 @bot.command(name="case")
-@commands.has_permissions(moderate_members=True)
+@owner_only()
 async def view_case(ctx, log_id: int = None):
     if log_id is None:
         await ctx.send(embed=make_error_embed("Missing **case ID**. Usage: `!case 12`"))
@@ -575,7 +578,7 @@ async def view_case(ctx, log_id: int = None):
 
 
 @bot.command()
-@commands.has_permissions(moderate_members=True)
+@owner_only()
 async def reason(ctx, log_id: int = None, *, new_reason=None):
     if log_id is None or not new_reason:
         await ctx.send(embed=make_error_embed("Missing **arguments**. Usage: `!reason caseID new reason`"))
@@ -594,7 +597,7 @@ async def reason(ctx, log_id: int = None, *, new_reason=None):
 
 
 @bot.command()
-@commands.has_permissions(moderate_members=True)
+@owner_only()
 async def removelog(ctx, log_id: int = None):
     if log_id is None:
         await ctx.send(embed=make_error_embed("Missing **case ID**. Usage: `!removelog 12`"))
@@ -624,11 +627,11 @@ async def removelog(ctx, log_id: int = None):
 @reason.error
 @removelog.error
 @guildapplysetup.error
+@ticketclose.error
+@ticketdelete.error
 async def command_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send(embed=make_error_embed("You do not have the **required permissions** to use this command."))
-    elif isinstance(error, commands.BotMissingPermissions):
-        await ctx.send(embed=make_error_embed("I do not have the **required permissions** to do that."))
+    if isinstance(error, commands.CheckFailure):
+        await ctx.send(embed=make_error_embed("Only members with the **Owner** role can use this command."))
     elif isinstance(error, commands.BadArgument):
         await ctx.send(embed=make_error_embed("Invalid **argument type**. Check the command format and try again."))
     elif isinstance(error, commands.MissingRequiredArgument):
