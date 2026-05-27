@@ -188,6 +188,53 @@ def create_apply_embed():
     return embed
 
 
+def create_rules_embed():
+    embed = make_embed(
+        "Server Rules",
+        "Welcome to **DECAY**.\n\n"
+        "To keep the server organized, competitive, and respectful, every member must follow these rules.\n\n"
+        "**RULES:**\n"
+        "- **Respect everyone** — No harassment, hate speech, toxicity, threats, or personal attacks.\n"
+        "- **No spam** — Avoid flooding chats, repeated messages, excessive mentions, or useless pings.\n"
+        "- **Use channels properly** — Keep conversations in the correct channels.\n"
+        "- **No drama** — Do not bring personal conflicts, guild drama, or unnecessary arguments into the server.\n"
+        "- **No NSFW or inappropriate content** — Keep all content safe and appropriate.\n"
+        "- **No scams or suspicious links** — Do not post phishing links, fake giveaways, or unsafe websites.\n"
+        "- **Follow owner decisions** — Owners have the final say in moderation and server management.\n"
+        "- **Represent DECAY properly** — If you are part of the guild, act with loyalty, maturity, and respect.\n\n"
+        "**PUNISHMENTS:**\n"
+        "Breaking the rules may result in warnings, timeouts, kicks, or bans depending on the severity.\n\n"
+        "By staying in this server, you agree to follow these rules."
+    )
+    embed.set_thumbnail(url=DECAY_LOGO_URL)
+    embed.set_footer(text="DECAY Server Rules")
+    return embed
+
+
+def create_suggestions_embed():
+    embed = make_embed(
+        "Suggestions",
+        "Help us improve **DECAY**.\n\n"
+        "This channel is for suggestions related to the server, guild systems, events, channels, roles, bots, or community ideas.\n\n"
+        "**HOW TO SUGGEST:**\n"
+        "- Explain your idea clearly.\n"
+        "- Keep it realistic and useful.\n"
+        "- Give details if the suggestion affects the guild or server structure.\n"
+        "- Do not spam the same suggestion multiple times.\n"
+        "- Respect other people’s opinions.\n\n"
+        "**EXAMPLES:**\n"
+        "- New event ideas\n"
+        "- Server channel improvements\n"
+        "- Guild activity ideas\n"
+        "- Role or reward suggestions\n"
+        "- Bot feature suggestions\n\n"
+        "Owners will review suggestions and decide what fits best for **DECAY**."
+    )
+    embed.set_thumbnail(url=DECAY_LOGO_URL)
+    embed.set_footer(text="DECAY Suggestions")
+    return embed
+
+
 def create_ticket_questions_embed(member):
     embed = make_embed(
         "DECAY Guild Application",
@@ -315,6 +362,20 @@ async def ping(ctx):
 async def guildapplysetup(ctx):
     await ctx.send(embed=create_apply_embed(), view=GuildApplyView())
     await send_log(ctx.guild, "Guild Apply Setup Sent", f"**Moderator:** {ctx.author.mention}\n**Channel:** {ctx.channel.mention}")
+
+
+@bot.command()
+@owner_only()
+async def rulesembed(ctx):
+    await ctx.send(embed=create_rules_embed())
+    await send_log(ctx.guild, "Rules Embed Sent", f"**Moderator:** {ctx.author.mention}\n**Channel:** {ctx.channel.mention}")
+
+
+@bot.command()
+@owner_only()
+async def suggestionsembed(ctx):
+    await ctx.send(embed=create_suggestions_embed())
+    await send_log(ctx.guild, "Suggestions Embed Sent", f"**Moderator:** {ctx.author.mention}\n**Channel:** {ctx.channel.mention}")
 
 
 @bot.command()
@@ -602,6 +663,8 @@ async def removelog(ctx, log_id: int = None):
 @reason.error
 @removelog.error
 @guildapplysetup.error
+@rulesembed.error
+@suggestionsembed.error
 @ticketclose.error
 @ticketdelete.error
 async def command_error(ctx, error):
