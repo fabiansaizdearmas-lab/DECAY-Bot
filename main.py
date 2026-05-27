@@ -15,7 +15,7 @@ ANNOUNCEMENTS_CHANNEL_ID = 1509273242580422777
 GUILD_APPLY_CHANNEL_ID = 1509295180820381716
 GUILD_TICKET_CATEGORY_ID = 1509302737399975966
 WELCOME_BANNER_URL = "https://raw.githubusercontent.com/fabiansaizdearmas-lab/DECAY-Bot/main/DECAYBanner.png"
-DECAY_LOGO_URL = "https://raw.githubusercontent.com/fabiansaizdearmas-lab/DECAY-Bot/main/DECAYLogo"
+DECAY_LOGO_URL = "https://raw.githubusercontent.com/fabiansaizdearmas-lab/DECAY-Bot/main/DECAYLogo.png"
 STAFF_ROLE_IDS = [1509264947006279700, 1509302357631041716, 1509302416519204894]
 
 intents = discord.Intents.default()
