@@ -6,11 +6,15 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 DB_PATH = "modlogs_v2.db"
+
+DECAY_RED = 0xB30000
 WELCOME_CHANNEL_ID = 1509285951816335411
 RULES_CHANNEL_ID = 1509281427689177220
 ANNOUNCEMENTS_CHANNEL_ID = 1509273242580422777
-GUILD_TICKETS_CHANNEL_ID = 1509295180820381716
+GUILD_APPLY_CHANNEL_ID = 1509295180820381716
+GUILD_TICKET_CATEGORY_ID = 1509302737399975966
 WELCOME_BANNER_URL = "https://raw.githubusercontent.com/fabiansaizdearmas-lab/DECAY-Bot/main/DECAYBanner.png"
+STAFF_ROLE_IDS = [1509264947006279700, 1509302357631041716, 1509302416519204894]
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -26,12 +30,18 @@ def format_date(date_text):
     return datetime.fromisoformat(date_text).strftime("%Y-%m-%d %H:%M UTC")
 
 
+def make_embed(title, description, color=DECAY_RED):
+    embed = discord.Embed(title=title, description=description, color=color)
+    embed.set_footer(text="DECAY Bot")
+    return embed
+
+
 def make_success_embed(title, description):
-    return discord.Embed(title=title, description=description, color=discord.Color.green())
+    return make_embed(title, description, discord.Color.green())
 
 
 def make_error_embed(description):
-    return discord.Embed(title="Command Error", description=description, color=discord.Color.red())
+    return make_embed("Command Error", description, discord.Color.red())
 
 
 def init_db():
@@ -150,9 +160,114 @@ def can_punish(ctx, target):
     return True, None
 
 
+def has_ticket_staff_role(member):
+    if member.guild_permissions.administrator:
+        return True
+    return any(role.id in STAFF_ROLE_IDS for role in member.roles)
+
+
+def safe_channel_name(text):
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9-]", "-", text)
+    text = re.sub(r"-+", "-", text).strip("-")
+    return text[:40] or "user"
+
+
+def create_apply_embed():
+    embed = make_embed(
+        "Apply for DECAY",
+        (
+            "Do you want to join us?\n\n"
+            "**DECAY** is our main guild, built for the best and most dedicated players. "
+            "We are looking for active, competitive and loyal members who want to improve and represent DECAY.\n\n"
+            "**Requirements**\n"
+            "• Own strong units from the current **top meta**\n"
+            "• Have an **advanced understanding** of the game\n"
+            "• Be **competitive** and motivated to improve\n"
+            "• Understand, or be willing to learn, **leaderboard runs**\n"
+            "• Stay **loyal** and committed to **DECAY**\n"
+            "• Be respectful, mature and able to work with other guild members\n\n"
+            "**Extra Information**\n"
+            "Applying does **not** guarantee acceptance. Staff may ask for extra information about your units, progress, activity and experience.\n\n"
+            "If you believe you are ready to represent **DECAY**, press the button below."
+        ),
+    )
+    embed.set_footer(text="DECAY Guild Applications")
+    return embed
+
+
+def create_ticket_questions_embed(member):
+    embed = make_embed(
+        "DECAY Guild Application",
+        (
+            f"Thanks for applying to **DECAY**, {member.mention}.\n\n"
+            "Please answer the following questions:\n\n"
+            "**1.** What is your **Roblox username**?\n"
+            "**2.** Send a **screenshot of your best units**.\n"
+            "**3.** How active are you in **Discord** and **Roblox** from **1 to 10**?\n"
+            "**4.** Why do you want to join **DECAY**, and why should we accept you?\n\n"
+            "A staff member will review your application soon. Please be patient."
+        ),
+    )
+    embed.set_footer(text="DECAY Guild Applications")
+    return embed
+
+
+class GuildApplyView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Apply for DECAY", style=discord.ButtonStyle.danger, custom_id="decay_apply_button")
+    async def apply_for_decay(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        member = interaction.user
+
+        if not guild or not isinstance(member, discord.Member):
+            await interaction.response.send_message("This button can only be used inside the server.", ephemeral=True)
+            return
+
+        category = guild.get_channel(GUILD_TICKET_CATEGORY_ID)
+        if not isinstance(category, discord.CategoryChannel):
+            await interaction.response.send_message("The **ticket category** was not found. Please contact staff.", ephemeral=True)
+            return
+
+        topic_key = f"DECAY_APPLICATION_USER:{member.id}"
+        for channel in category.text_channels:
+            if channel.topic and topic_key in channel.topic:
+                await interaction.response.send_message(f"You already have an open application ticket: {channel.mention}", ephemeral=True)
+                return
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            member: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, attach_files=True, embed_links=True),
+            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True),
+        }
+
+        for role_id in STAFF_ROLE_IDS:
+            role = guild.get_role(role_id)
+            if role:
+                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True)
+
+        channel_name = f"decay-apply-{safe_channel_name(member.name)}"
+        ticket_channel = await guild.create_text_channel(
+            name=channel_name,
+            category=category,
+            overwrites=overwrites,
+            topic=f"DECAY guild application ticket | {topic_key}",
+            reason=f"DECAY application ticket created by {member}",
+        )
+
+        await ticket_channel.send(
+            content=f"{member.mention} " + " ".join(f"<@&{role_id}>" for role_id in STAFF_ROLE_IDS),
+            embed=create_ticket_questions_embed(member),
+        )
+        await interaction.response.send_message(f"Your **DECAY application ticket** has been created: {ticket_channel.mention}", ephemeral=True)
+
+
 @bot.event
 async def on_ready():
     init_db()
+    bot.add_view(GuildApplyView())
     if not check_temp_bans.is_running():
         check_temp_bans.start()
     print(f"Bot connected as {bot.user}")
@@ -164,20 +279,19 @@ async def on_member_join(member):
     if not channel:
         return
 
-    embed = discord.Embed(
-        title=f"Welcome to {member.guild.name}, {member.name}!",
-        description=(
+    embed = make_embed(
+        f"Welcome to {member.guild.name}, {member.name}!",
+        (
             f"Hey {member.mention}, welcome to **DECAY**!\n\n"
             f"Please check <#{RULES_CHANNEL_ID}> before chatting.\n"
             f"Keep an eye on <#{ANNOUNCEMENTS_CHANNEL_ID}> for important updates.\n\n"
-            f"If you want to apply to a **DECAY guild**, go to <#{GUILD_TICKETS_CHANNEL_ID}> "
+            f"If you want to apply to a **DECAY guild**, go to <#{GUILD_APPLY_CHANNEL_ID}> "
             f"and create a ticket for the guild you want to join."
         ),
-        color=discord.Color.red(),
     )
     embed.set_image(url=WELCOME_BANNER_URL)
     embed.set_thumbnail(url=member.display_avatar.url)
-    embed.set_footer(text=f"Member #{member.guild.member_count}")
+    embed.set_footer(text=f"Member #{member.guild.member_count} • DECAY")
     await channel.send(content=member.mention, embed=embed)
 
 
@@ -210,6 +324,48 @@ async def ping(ctx):
 
 
 @bot.command()
+@commands.has_permissions(manage_guild=True)
+async def guildapplysetup(ctx):
+    embed = create_apply_embed()
+    await ctx.send(embed=embed, view=GuildApplyView())
+
+
+@bot.command()
+async def ticketclose(ctx):
+    if not has_ticket_staff_role(ctx.author):
+        await ctx.send(embed=make_error_embed("You do not have the **required staff role** to close tickets."))
+        return
+    if not ctx.channel.topic or "DECAY_APPLICATION_USER:" not in ctx.channel.topic:
+        await ctx.send(embed=make_error_embed("This command can only be used inside a **DECAY application ticket**."))
+        return
+
+    match = re.search(r"DECAY_APPLICATION_USER:(\d+)", ctx.channel.topic)
+    user_id = int(match.group(1)) if match else None
+    member = ctx.guild.get_member(user_id) if user_id else None
+
+    if member:
+        await ctx.channel.set_permissions(member, view_channel=False, send_messages=False)
+
+    if not ctx.channel.name.startswith("closed-"):
+        await ctx.channel.edit(name=f"closed-{ctx.channel.name[:80]}")
+
+    await ctx.send(embed=make_embed("Ticket Closed", "This **application ticket** has been closed. Staff can still review it.\nUse `!ticketdelete` to delete it permanently."))
+
+
+@bot.command()
+async def ticketdelete(ctx):
+    if not has_ticket_staff_role(ctx.author):
+        await ctx.send(embed=make_error_embed("You do not have the **required staff role** to delete tickets."))
+        return
+    if not ctx.channel.topic or "DECAY_APPLICATION_USER:" not in ctx.channel.topic:
+        await ctx.send(embed=make_error_embed("This command can only be used inside a **DECAY application ticket**."))
+        return
+
+    await ctx.send(embed=make_embed("Ticket Deleted", "This channel will be deleted in **5 seconds**."))
+    await ctx.channel.delete(reason=f"Application ticket deleted by {ctx.author}")
+
+
+@bot.command()
 @commands.has_permissions(moderate_members=True)
 async def warn(ctx, target_text: str = None, *, reason=None):
     if not target_text:
@@ -224,7 +380,7 @@ async def warn(ctx, target_text: str = None, *, reason=None):
         await ctx.send(embed=make_error_embed(error))
         return
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "WARN", None, reason)
-    await ctx.send(embed=make_success_embed("⚠️ User Warned", f"**User:** {target_name(target)}\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+    await ctx.send(embed=make_embed("User Warned", f"**User:** {target_name(target)}\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
 
 
 @bot.command()
@@ -247,7 +403,7 @@ async def timeout(ctx, target_text: str = None, duration_text: str = None, *, re
         return
     await target.timeout(now_utc() + duration, reason=reason or f"Timed out by {ctx.author}")
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "TIMEOUT", duration_text, reason)
-    await ctx.send(embed=make_success_embed("⏳ User Timed Out", f"**User:** {target.mention}\n**Duration:** `{duration_text}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+    await ctx.send(embed=make_embed("User Timed Out", f"**User:** {target.mention}\n**Duration:** `{duration_text}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
 
 
 @bot.command()
@@ -266,7 +422,7 @@ async def untimeout(ctx, target_text: str = None, *, reason=None):
         return
     await target.timeout(None, reason=reason or f"Timeout removed by {ctx.author}")
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "UNTIMEOUT", None, reason)
-    await ctx.send(embed=make_success_embed("✅ Timeout Removed", f"**User:** {target.mention}\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+    await ctx.send(embed=make_embed("Timeout Removed", f"**User:** {target.mention}\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
 
 
 @bot.command()
@@ -285,7 +441,7 @@ async def kick(ctx, target_text: str = None, *, reason=None):
         return
     await target.kick(reason=reason or f"Kicked by {ctx.author}")
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "KICK", None, reason)
-    await ctx.send(embed=make_success_embed("👢 User Kicked", f"**User:** `{target}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+    await ctx.send(embed=make_embed("User Kicked", f"**User:** `{target}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
 
 
 @bot.command()
@@ -313,10 +469,10 @@ async def ban(ctx, target_text: str = None, duration_text: str = None, *, reason
     if duration:
         add_active_tempban(ctx.guild.id, target.id, now_utc() + duration)
         log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "TEMP_BAN", duration_text, reason)
-        await ctx.send(embed=make_success_embed("🔨 User Temporarily Banned", f"**User:** `{target}`\n**Duration:** `{duration_text}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+        await ctx.send(embed=make_embed("User Temporarily Banned", f"**User:** `{target}`\n**Duration:** `{duration_text}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
     else:
         log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "PERMA_BAN", None, reason)
-        await ctx.send(embed=make_success_embed("🔨 User Permanently Banned", f"**User:** `{target}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+        await ctx.send(embed=make_embed("User Permanently Banned", f"**User:** `{target}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
 
 
 @bot.command()
@@ -336,7 +492,7 @@ async def unban(ctx, target_text: str = None, *, reason=None):
         return
     remove_active_tempban(ctx.guild.id, target.id)
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "UNBAN", None, reason)
-    await ctx.send(embed=make_success_embed("✅ User Unbanned", f"**User:** `{target}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+    await ctx.send(embed=make_embed("User Unbanned", f"**User:** `{target}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
 
 
 @bot.command()
@@ -349,7 +505,7 @@ async def clear(ctx, amount: int = None):
         await ctx.send(embed=make_error_embed("Invalid **amount**. Choose a number between **1 and 100**."))
         return
     deleted = await ctx.channel.purge(limit=amount + 1)
-    confirmation = await ctx.send(embed=make_success_embed("🧹 Messages Cleared", f"Deleted **{len(deleted) - 1}** messages."))
+    confirmation = await ctx.send(embed=make_embed("Messages Cleared", f"Deleted **{len(deleted) - 1}** messages."))
     try:
         await confirmation.delete(delay=5)
     except discord.DiscordException:
@@ -380,7 +536,7 @@ async def modlog(ctx, target_text: str = None):
         await ctx.send(embed=make_error_embed("No **moderation history** found for this user."))
         return
 
-    embed = discord.Embed(title=f"📜 Modlog for {target}", color=discord.Color.orange())
+    embed = make_embed(f"Modlog for {target}", "Latest **10 moderation cases** for this user.")
     for log_id, action, duration, reason, moderator_id, created_at in rows:
         embed.add_field(
             name=f"Case #{log_id} — {action}",
@@ -408,13 +564,13 @@ async def view_case(ctx, log_id: int = None):
         await ctx.send(embed=make_error_embed("Case not found. Check the **case ID** and try again."))
         return
     user_id, moderator_id, action, duration, reason, created_at = row
-    embed = discord.Embed(title=f"📁 Case #{log_id}", color=discord.Color.blue())
+    embed = make_embed(f"Case #{log_id}", "Moderation case details.")
     embed.add_field(name="User", value=f"<@{user_id}> (`{user_id}`)", inline=False)
     embed.add_field(name="Action", value=f"**{action}**", inline=True)
     embed.add_field(name="Duration", value=duration or "N/A", inline=True)
     embed.add_field(name="Moderator", value=f"<@{moderator_id}>", inline=False)
     embed.add_field(name="Reason", value=reason or "No reason provided", inline=False)
-    embed.set_footer(text=format_date(created_at))
+    embed.set_footer(text=f"{format_date(created_at)} • DECAY Bot")
     await ctx.send(embed=embed)
 
 
@@ -434,7 +590,7 @@ async def reason(ctx, log_id: int = None, *, new_reason=None):
     cursor.execute("UPDATE mod_logs SET reason = ? WHERE guild_id = ? AND id = ?", (new_reason, ctx.guild.id, log_id))
     conn.commit()
     conn.close()
-    await ctx.send(embed=make_success_embed("✏️ Case Reason Updated", f"**Case ID:** `#{log_id}`\n**New reason:** {new_reason}"))
+    await ctx.send(embed=make_embed("Case Reason Updated", f"**Case ID:** `#{log_id}`\n**New reason:** {new_reason}"))
 
 
 @bot.command()
@@ -453,7 +609,7 @@ async def removelog(ctx, log_id: int = None):
     cursor.execute("DELETE FROM mod_logs WHERE guild_id = ? AND id = ?", (ctx.guild.id, log_id))
     conn.commit()
     conn.close()
-    await ctx.send(embed=make_success_embed("🗑️ Case Removed", f"**Case ID:** `#{log_id}` has been deleted from the modlog."))
+    await ctx.send(embed=make_embed("Case Removed", f"**Case ID:** `#{log_id}` has been deleted from the modlog."))
 
 
 @warn.error
@@ -467,6 +623,7 @@ async def removelog(ctx, log_id: int = None):
 @view_case.error
 @reason.error
 @removelog.error
+@guildapplysetup.error
 async def command_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.send(embed=make_error_embed("You do not have the **required permissions** to use this command."))
