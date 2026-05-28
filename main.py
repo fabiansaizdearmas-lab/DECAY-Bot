@@ -179,10 +179,6 @@ def make_embed(title, description, color=DECAY_RED):
     return embed
 
 
-def make_error_embed(description):
-    return make_embed("Command Error", description, discord.Color.red())
-
-
 async def send_log(guild, title, description, color=DECAY_RED):
     channel = guild.get_channel(LOG_CHANNEL_ID)
     if not channel:
@@ -312,7 +308,7 @@ async def check_abuse_limit(ctx, action):
     if len(timestamps) >= ABUSE_LIMIT:
         remaining = ABUSE_WINDOW - (now_utc() - min(timestamps))
         text = pick("cooldown", time=format_remaining(remaining), action=action)
-        await ctx.send(embed=make_error_embed(text))
+        await ctx.send(text)
         await send_log(ctx.guild, "Safety Limit Triggered", f"**Staff:** {ctx.author.mention}\n**Action:** `{action}`\n**Limit:** `{ABUSE_LIMIT}` per 6h\n**Remaining:** `{format_remaining(remaining)}`", discord.Color.orange())
         return False
     timestamps.append(now_utc())
@@ -416,7 +412,7 @@ def create_suggestions_embed():
         "- Keep it realistic and useful.\n"
         "- Give details if the suggestion affects the Guild or server structure.\n"
         "- Do not spam the same suggestion multiple times.\n"
-        "- Respect other people’s opinions.\n\n"
+        "- Respect other people's opinions.\n\n"
         "**EXAMPLES:**\n"
         "- New event ideas\n"
         "- Server channel improvements\n"
@@ -481,7 +477,7 @@ class GuildApplyView(discord.ui.View):
             return
         category = guild.get_channel(GUILD_TICKET_CATEGORY_ID)
         if not isinstance(category, discord.CategoryChannel):
-            await interaction.response.send_message("The **ticket category** was not found. Please contact staff.", ephemeral=True)
+            await interaction.response.send_message("The ticket category was not found. Please contact staff.", ephemeral=True)
             return
         topic_key = f"DECAY_APPLICATION_USER:{member.id}"
         for channel in category.text_channels:
@@ -506,7 +502,7 @@ class GuildApplyView(discord.ui.View):
         )
         await ticket_channel.send(content=f"{member.mention} " + " ".join(f"<@&{role_id}>" for role_id in TICKET_STAFF_ROLE_IDS), embed=create_ticket_questions_embed(member))
         await send_log(guild, "Ticket Created", f"**User:** {member.mention} (`{member.id}`)\n**Ticket:** {ticket_channel.mention}\n**Type:** DECAY Guild application")
-        await interaction.response.send_message(f"Your **DECAY application ticket** has been created: {ticket_channel.mention}", ephemeral=True)
+        await interaction.response.send_message(f"Your DECAY application ticket has been created: {ticket_channel.mention}", ephemeral=True)
 
 
 @bot.event
@@ -595,9 +591,9 @@ async def ping(ctx):
 @bot.command(name="8ball")
 async def eight_ball(ctx, *, question=None):
     if not question:
-        await ctx.send(embed=make_error_embed(pick("missing")))
+        await ctx.send(pick("missing"))
         return
-    await ctx.send(embed=make_embed("8ball", random.choice(PHRASES["8ball"])))
+    await ctx.send(random.choice(PHRASES["8ball"]))
 
 
 @bot.command()
@@ -606,7 +602,7 @@ async def rate(ctx, *, target=None):
         target = ctx.author.mention
     number = random.randint(0, 100)
     rest = 100 - number
-    await ctx.send(embed=make_embed("Rate Machine", pick("rate", target=target, number=number, rest=rest)))
+    await ctx.send(pick("rate", target=target, number=number, rest=rest))
 
 
 @bot.command()
@@ -641,7 +637,7 @@ async def contributionsembed(ctx):
 @ticket_staff_only()
 async def ticketclose(ctx):
     if not ctx.channel.topic or "DECAY_APPLICATION_USER:" not in ctx.channel.topic:
-        await ctx.send(embed=make_error_embed("this command only works inside an application ticket."))
+        await ctx.send("this command only works inside an application ticket.")
         return
     match = re.search(r"DECAY_APPLICATION_USER:(\d+)", ctx.channel.topic)
     user_id = int(match.group(1)) if match else None
@@ -650,7 +646,7 @@ async def ticketclose(ctx):
         await ctx.channel.set_permissions(member, view_channel=False, send_messages=False)
     if not ctx.channel.name.startswith("closed-"):
         await ctx.channel.edit(name=f"closed-{ctx.channel.name[:80]}")
-    await ctx.send(embed=make_embed("Ticket Closed", pick("ticketclose")))
+    await ctx.send(pick("ticketclose"))
     await send_log(ctx.guild, "Ticket Closed", f"**Closed by:** {ctx.author.mention}\n**Ticket:** {ctx.channel.mention}\n**Applicant ID:** `{user_id or 'Unknown'}`")
 
 
@@ -658,14 +654,14 @@ async def ticketclose(ctx):
 @ticket_staff_only()
 async def ticketdelete(ctx):
     if not ctx.channel.topic or "DECAY_APPLICATION_USER:" not in ctx.channel.topic:
-        await ctx.send(embed=make_error_embed("this command only works inside an application ticket."))
+        await ctx.send("this command only works inside an application ticket.")
         return
     ticket_name = ctx.channel.name
     ticket_id = ctx.channel.id
     match = re.search(r"DECAY_APPLICATION_USER:(\d+)", ctx.channel.topic)
     user_id = int(match.group(1)) if match else None
     await send_log(ctx.guild, "Ticket Deleted", f"**Deleted by:** {ctx.author.mention}\n**Ticket:** `#{ticket_name}` (`{ticket_id}`)\n**Applicant ID:** `{user_id or 'Unknown'}`")
-    await ctx.send(embed=make_embed("Ticket Deleted", pick("ticketdelete")))
+    await ctx.send(pick("ticketdelete"))
     await ctx.channel.delete(reason=f"Application ticket deleted by {ctx.author}")
 
 
@@ -673,25 +669,25 @@ async def ticketdelete(ctx):
 @basic_staff_only()
 async def timeout(ctx, target_text: str = None, duration_text: str = None, *, reason=None):
     if not target_text or not duration_text:
-        await ctx.send(embed=make_error_embed("Usage: `!timeout @user 1h reason` or `!timeout @user 2d reason`"))
+        await ctx.send("Usage: `!timeout @user 1h reason` or `!timeout @user 2d reason`")
         return
     if not await check_abuse_limit(ctx, "timeout"):
         return
     target = await get_user_from_text(ctx.guild, target_text)
     duration = parse_duration(duration_text)
     if not target or not isinstance(target, discord.Member):
-        await ctx.send(embed=make_error_embed("member not found. timeouts only work on users currently in the server."))
+        await ctx.send("member not found. timeouts only work on users currently in the server.")
         return
     if not duration:
-        await ctx.send(embed=make_error_embed("invalid duration. use `1h`, `6h`, `1d`, or `7d`."))
+        await ctx.send("invalid duration. use `1h`, `6h`, `1d`, or `7d`.")
         return
     allowed, error = can_punish(ctx, target)
     if not allowed:
-        await ctx.send(embed=make_error_embed(error))
+        await ctx.send(error)
         return
     await target.timeout(now_utc() + duration, reason=reason or f"Timed out by {ctx.author}")
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "TIMEOUT", duration_text, reason)
-    await ctx.send(embed=make_embed("User Timed Out", f"{pick('timeout', user=target.mention, duration=duration_text)}\n\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+    await ctx.send(f"{pick('timeout', user=target.mention, duration=duration_text)} case `#{log_id}`.")
     await log_mod_action(ctx, "Moderation: Timeout", target, reason, log_id, duration_text)
 
 
@@ -699,19 +695,19 @@ async def timeout(ctx, target_text: str = None, duration_text: str = None, *, re
 @basic_staff_only()
 async def untimeout(ctx, target_text: str = None, *, reason=None):
     if not target_text:
-        await ctx.send(embed=make_error_embed("Usage: `!untimeout @user reason`"))
+        await ctx.send("Usage: `!untimeout @user reason`")
         return
     target = await get_user_from_text(ctx.guild, target_text)
     if not target or not isinstance(target, discord.Member):
-        await ctx.send(embed=make_error_embed("member not found. untimeout only works on users currently in the server."))
+        await ctx.send("member not found. untimeout only works on users currently in the server.")
         return
     allowed, error = can_punish(ctx, target)
     if not allowed:
-        await ctx.send(embed=make_error_embed(error))
+        await ctx.send(error)
         return
     await target.timeout(None, reason=reason or f"Timeout removed by {ctx.author}")
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "UNTIMEOUT", None, reason)
-    await ctx.send(embed=make_embed("Timeout Removed", f"{pick('untimeout', user=target.mention)}\n\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+    await ctx.send(f"{pick('untimeout', user=target.mention)} case `#{log_id}`.")
     await log_mod_action(ctx, "Moderation: Untimeout", target, reason, log_id)
 
 
@@ -719,21 +715,21 @@ async def untimeout(ctx, target_text: str = None, *, reason=None):
 @full_staff_only()
 async def kick(ctx, target_text: str = None, *, reason=None):
     if not target_text:
-        await ctx.send(embed=make_error_embed("Usage: `!kick @user reason`"))
+        await ctx.send("Usage: `!kick @user reason`")
         return
     if not await check_abuse_limit(ctx, "kick"):
         return
     target = await get_user_from_text(ctx.guild, target_text)
     if not target or not isinstance(target, discord.Member):
-        await ctx.send(embed=make_error_embed("member not found. kicks only work on users currently in the server."))
+        await ctx.send("member not found. kicks only work on users currently in the server.")
         return
     allowed, error = can_punish(ctx, target)
     if not allowed:
-        await ctx.send(embed=make_error_embed(error))
+        await ctx.send(error)
         return
     await target.kick(reason=reason or f"Kicked by {ctx.author}")
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "KICK", None, reason)
-    await ctx.send(embed=make_embed("User Kicked", f"{pick('kick', user=f'`{target}`')}\n\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+    await ctx.send(f"{pick('kick', user=f'`{target}`')} case `#{log_id}`.")
     await log_mod_action(ctx, "Moderation: Kick", target, reason, log_id)
 
 
@@ -741,13 +737,13 @@ async def kick(ctx, target_text: str = None, *, reason=None):
 @full_staff_only()
 async def ban(ctx, target_text: str = None, duration_text: str = None, *, reason=None):
     if not target_text:
-        await ctx.send(embed=make_error_embed("Usage: `!ban @user reason` or `!ban @user 7d reason`"))
+        await ctx.send("Usage: `!ban @user reason` or `!ban @user 7d reason`")
         return
     if not await check_abuse_limit(ctx, "ban"):
         return
     target = await get_user_from_text(ctx.guild, target_text)
     if not target:
-        await ctx.send(embed=make_error_embed("user not found. use a mention or valid user ID."))
+        await ctx.send("user not found. use a mention or valid user ID.")
         return
     duration = parse_duration(duration_text) if duration_text else None
     if duration_text and not duration:
@@ -755,17 +751,17 @@ async def ban(ctx, target_text: str = None, duration_text: str = None, *, reason
         duration_text = None
     allowed, error = can_punish(ctx, target)
     if not allowed:
-        await ctx.send(embed=make_error_embed(error))
+        await ctx.send(error)
         return
     await ctx.guild.ban(target, reason=reason or f"Banned by {ctx.author}")
     if duration:
         add_active_tempban(ctx.guild.id, target.id, now_utc() + duration)
         log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "TEMP_BAN", duration_text, reason)
-        await ctx.send(embed=make_embed("User Temporarily Banned", f"{pick('tempban', user=f'`{target}`', duration=duration_text)}\n\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+        await ctx.send(f"{pick('tempban', user=f'`{target}`', duration=duration_text)} case `#{log_id}`.")
         await log_mod_action(ctx, "Moderation: Temporary Ban", target, reason, log_id, duration_text)
     else:
         log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "PERMA_BAN", None, reason)
-        await ctx.send(embed=make_embed("User Permanently Banned", f"{pick('permban', user=f'`{target}`')}\n\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+        await ctx.send(f"{pick('permban', user=f'`{target}`')} case `#{log_id}`.")
         await log_mod_action(ctx, "Moderation: Permanent Ban", target, reason, log_id)
 
 
@@ -773,20 +769,20 @@ async def ban(ctx, target_text: str = None, duration_text: str = None, *, reason
 @full_staff_only()
 async def unban(ctx, target_text: str = None, *, reason=None):
     if not target_text:
-        await ctx.send(embed=make_error_embed("Usage: `!unban userID reason`"))
+        await ctx.send("Usage: `!unban userID reason`")
         return
     target = await get_user_from_text(ctx.guild, target_text)
     if not target:
-        await ctx.send(embed=make_error_embed("user not found. use a valid user ID."))
+        await ctx.send("user not found. use a valid user ID.")
         return
     try:
         await ctx.guild.unban(target, reason=reason or f"Unbanned by {ctx.author}")
     except discord.NotFound:
-        await ctx.send(embed=make_error_embed("that user is not banned in this server."))
+        await ctx.send("that user is not banned in this server.")
         return
     remove_active_tempban(ctx.guild.id, target.id)
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "UNBAN", None, reason)
-    await ctx.send(embed=make_embed("User Unbanned", f"{pick('unban', user=f'`{target}`')}\n\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+    await ctx.send(f"{pick('unban', user=f'`{target}`')} case `#{log_id}`.")
     await log_mod_action(ctx, "Moderation: Unban", target, reason, log_id)
 
 
@@ -794,13 +790,13 @@ async def unban(ctx, target_text: str = None, *, reason=None):
 @basic_staff_only()
 async def clear(ctx, amount: int = None):
     if amount is None:
-        await ctx.send(embed=make_error_embed("Usage: `!clear 10`"))
+        await ctx.send("Usage: `!clear 10`")
         return
     if amount < 1 or amount > 100:
-        await ctx.send(embed=make_error_embed("invalid amount. choose a number between 1 and 100."))
+        await ctx.send("invalid amount. choose a number between 1 and 100.")
         return
     deleted = await ctx.channel.purge(limit=amount + 1)
-    confirmation = await ctx.send(embed=make_embed("Messages Cleared", pick("clear", amount=len(deleted) - 1)))
+    confirmation = await ctx.send(pick("clear", amount=len(deleted) - 1))
     await send_log(ctx.guild, "Moderation: Clear", f"**Moderator:** {ctx.author.mention}\n**Channel:** {ctx.channel.mention}\n**Messages deleted:** `{len(deleted) - 1}`")
     try:
         await confirmation.delete(delay=5)
@@ -812,11 +808,11 @@ async def clear(ctx, amount: int = None):
 @basic_staff_only()
 async def modlog(ctx, target_text: str = None):
     if not target_text:
-        await ctx.send(embed=make_error_embed("Usage: `!modlog @user`"))
+        await ctx.send("Usage: `!modlog @user`")
         return
     target = await get_user_from_text(ctx.guild, target_text)
     if not target:
-        await ctx.send(embed=make_error_embed("user not found. use a mention or valid user ID."))
+        await ctx.send("user not found. use a mention or valid user ID.")
         return
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -824,7 +820,7 @@ async def modlog(ctx, target_text: str = None):
     rows = cursor.fetchall()
     conn.close()
     if not rows:
-        await ctx.send(embed=make_error_embed("no moderation history found for this user."))
+        await ctx.send("no moderation history found for this user.")
         return
     embed = make_embed(f"Modlog for {target}", "Latest **10 moderation cases** for this user.")
     for log_id, action, duration, reason, moderator_id, created_at in rows:
@@ -837,7 +833,7 @@ async def modlog(ctx, target_text: str = None):
 @basic_staff_only()
 async def view_case(ctx, log_id: int = None):
     if log_id is None:
-        await ctx.send(embed=make_error_embed("Usage: `!case 12`"))
+        await ctx.send("Usage: `!case 12`")
         return
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -845,7 +841,7 @@ async def view_case(ctx, log_id: int = None):
     row = cursor.fetchone()
     conn.close()
     if not row:
-        await ctx.send(embed=make_error_embed("case not found. check the case ID and try again."))
+        await ctx.send("case not found. check the case ID and try again.")
         return
     user_id, moderator_id, action, duration, reason, created_at = row
     embed = make_embed(f"Case #{log_id}", "Moderation case details.")
@@ -861,14 +857,14 @@ async def view_case(ctx, log_id: int = None):
 @full_staff_only()
 async def reason(ctx, log_id: int = None, *, new_reason=None):
     if log_id is None or not new_reason:
-        await ctx.send(embed=make_error_embed("Usage: `!reason caseID new reason`"))
+        await ctx.send("Usage: `!reason caseID new reason`")
         return
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM mod_logs WHERE guild_id = ? AND id = ?", (ctx.guild.id, log_id))
     if not cursor.fetchone():
         conn.close()
-        await ctx.send(embed=make_error_embed("case not found. check the case ID and try again."))
+        await ctx.send("case not found. check the case ID and try again.")
         return
     cursor.execute("UPDATE mod_logs SET reason = ? WHERE guild_id = ? AND id = ?", (new_reason, ctx.guild.id, log_id))
     conn.commit()
@@ -881,14 +877,14 @@ async def reason(ctx, log_id: int = None, *, new_reason=None):
 @full_staff_only()
 async def removelog(ctx, log_id: int = None):
     if log_id is None:
-        await ctx.send(embed=make_error_embed("Usage: `!removelog 12`"))
+        await ctx.send("Usage: `!removelog 12`")
         return
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM mod_logs WHERE guild_id = ? AND id = ?", (ctx.guild.id, log_id))
     if not cursor.fetchone():
         conn.close()
-        await ctx.send(embed=make_error_embed("case not found. check the case ID and try again."))
+        await ctx.send("case not found. check the case ID and try again.")
         return
     cursor.execute("DELETE FROM mod_logs WHERE guild_id = ? AND id = ?", (ctx.guild.id, log_id))
     conn.commit()
@@ -915,13 +911,13 @@ async def removelog(ctx, log_id: int = None):
 @ticketdelete.error
 async def command_error(ctx, error):
     if isinstance(error, commands.CheckFailure):
-        await ctx.send(embed=make_error_embed(random.choice(PHRASES["noperms"])))
+        await ctx.send(random.choice(PHRASES["noperms"]))
     elif isinstance(error, commands.BadArgument):
-        await ctx.send(embed=make_error_embed("invalid argument type. check the command format and try again."))
+        await ctx.send("invalid argument type. check the command format and try again.")
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(embed=make_error_embed(random.choice(PHRASES["missing"])))
+        await ctx.send(random.choice(PHRASES["missing"]))
     else:
-        await ctx.send(embed=make_error_embed("unexpected error. the bot tripped over a cable or something."))
+        await ctx.send("unexpected error. the bot tripped over a cable or something.")
         raise error
 
 
