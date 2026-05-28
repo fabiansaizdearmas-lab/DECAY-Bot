@@ -3,25 +3,170 @@ from discord.ext import commands, tasks
 import os
 import re
 import sqlite3
+import random
 from datetime import datetime, timedelta, timezone
 
 DB_PATH = "modlogs_v2.db"
 DECAY_RED = 0xB30000
-OWNER_ROLE_ID = 1509264947006279700
+
+OBLIVION_ROLE_ID = 1509264947006279700
+ENTROPY_ROLE_ID = 1509335654537105428
+RUIN_ROLE_ID = 1509333457703141426
+FRACTURE_ROLE_ID = 1509333436551401673
+WITHER_ROLE_ID = 1509335734866411560
+GUILD_CAPTAIN_ROLE_ID = 1509302357631041716
+
 WELCOME_CHANNEL_ID = 1509285951816335411
+GENERAL_CHANNEL_ID = 1509272809791029349
 RULES_CHANNEL_ID = 1509281427689177220
 ANNOUNCEMENTS_CHANNEL_ID = 1509273242580422777
 GUILD_APPLY_CHANNEL_ID = 1509295180820381716
 GUILD_TICKET_CATEGORY_ID = 1509302737399975966
+SUGGESTIONS_CHANNEL_ID = 1509273303020343296
 LOG_CHANNEL_ID = 1509323362344898652
+
 WELCOME_BANNER_URL = "https://raw.githubusercontent.com/fabiansaizdearmas-lab/DECAY-Bot/main/DECAYBanner.png"
 DECAY_LOGO_URL = "https://raw.githubusercontent.com/fabiansaizdearmas-lab/DECAY-Bot/main/DECAYLogo.png"
-STAFF_ROLE_IDS = [1509264947006279700, 1509302357631041716, 1509302416519204894]
+STAFF_ROLE_IDS = [OBLIVION_ROLE_ID, ENTROPY_ROLE_ID, RUIN_ROLE_ID, FRACTURE_ROLE_ID, WITHER_ROLE_ID]
+TICKET_STAFF_ROLE_IDS = STAFF_ROLE_IDS + [GUILD_CAPTAIN_ROLE_ID]
+FULL_STAFF_ROLE_IDS = [OBLIVION_ROLE_ID, ENTROPY_ROLE_ID, RUIN_ROLE_ID, FRACTURE_ROLE_ID]
+BASIC_STAFF_ROLE_IDS = STAFF_ROLE_IDS
+
+ABUSE_LIMIT = 3
+ABUSE_WINDOW = timedelta(hours=6)
+mod_action_history = {}
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+PHRASES = {
+    "timeout": [
+        "{user} got sent to the yapper containment unit for {duration}.",
+        "{user} lost chat privileges for {duration}. tragic timeline.",
+        "{user} got muted. peace has been restored for {duration}.",
+        "{user} got put on airplane mode for {duration}.",
+        "{user} has been temporarily silenced. chat can breathe for {duration}.",
+    ],
+    "untimeout": [
+        "{user} got unmuted. character development check starts now.",
+        "{user} escaped the yapper containment unit. do not sell the comeback.",
+        "{user} can talk again. this may or may not be a mistake.",
+        "{user} has been released back into chat. behave this time.",
+        "{user} got their mic plugged back in. let's see how long it lasts.",
+    ],
+    "kick": [
+        "{user} got kicked. bro failed the vibe check.",
+        "{user} got launched out of DECAY. no fall damage, probably.",
+        "{user} has left the server by force. speedrun complete.",
+        "{user} got removed from the lobby. queue somewhere else.",
+        "{user} got booted. skill issue detected.",
+    ],
+    "tempban": [
+        "{user} got temporarily deleted for {duration}. respawn timer started.",
+        "{user} got sent to exile for {duration}. comeback season pending.",
+        "{user} got benched for {duration}. think about the gameplay.",
+        "{user} got removed from the map for {duration}. patch notes needed.",
+        "{user} got banished for {duration}. see you after the cooldown.",
+    ],
+    "permban": [
+        "{user} got erased from DECAY. canon event.",
+        "{user} got hard deleted. no autosave found.",
+        "{user} got packed up permanently. gg go next.",
+        "{user} is now server lore. not the good kind.",
+        "{user} got sent to the shadow realm with no return ticket.",
+    ],
+    "unban": [
+        "{user} respawned. don't waste the extra life.",
+        "{user} got unbanned. redemption arc unlocked.",
+        "{user} is back. season 2 better not flop.",
+        "{user} got restored from the recycle bin.",
+        "{user} returned from exile. behave or the sequel gets cancelled.",
+    ],
+    "clear": [
+        "deleted {amount} messages. chat got a factory reset.",
+        "{amount} messages evaporated. never happened.",
+        "cleared {amount} messages. the allegations are gone.",
+        "{amount} messages got wiped. clean slate moment.",
+        "deleted {amount} messages. chat looks less cursed now.",
+    ],
+    "ticketclose": [
+        "ticket closed. case archived, drama contained.",
+        "ticket sealed. the council has spoken.",
+        "ticket closed. another file thrown into the DECAY archives.",
+        "application locked. judgment phase completed.",
+        "ticket closed. no more yapping in this chamber.",
+    ],
+    "ticketdelete": [
+        "ticket deleted. no screenshots, no evidence.",
+        "ticket erased. clean work.",
+        "ticket vaporized. it was never here.",
+        "ticket deleted. DECAY archives have been cleansed.",
+        "ticket removed from the timeline.",
+    ],
+    "cooldown": [
+        "nahh you're doing too much. wait {time} before continuing the admin arc.",
+        "bro is farming mod actions. wait {time} before doing allat again.",
+        "chill, final boss. wait {time} before using more {action}s.",
+        "mod rampage detected. wait {time} before continuing the chaos.",
+        "you hit the safety limit. wait {time} before the next moderation episode.",
+    ],
+    "noperms": [
+        "nice try, but you don't have the clearance for that.",
+        "access denied. DECAY does not recognize your authority.",
+        "bro tried to use forbidden magic.",
+        "you are not high enough in the food chain for this.",
+        "permission denied. the council is not impressed.",
+    ],
+    "missing": [
+        "bro forgot half the command.",
+        "command incomplete. the bot cannot read minds yet.",
+        "missing arguments. try again, but with the actual info this time.",
+        "you dropped some arguments on the way here.",
+        "incomplete spell. add the missing pieces.",
+    ],
+    "mention": [
+        "leave me alone dude",
+        "bro summoned me for what",
+        "what do you want now",
+        "not now, i'm busy doing absolutely nothing",
+        "bro thinks i'm customer support",
+        "DECAY is watching, unfortunately",
+        "say please next time",
+        "you called?",
+        "ping me again and i'll start charging rent",
+        "i was mentally offline, try again",
+    ],
+    "8ball": [
+        "yes, but don't get cooked.",
+        "nah, terrible idea.",
+        "DECAY approves this nonsense.",
+        "ask again when your aura recovers.",
+        "maybe, but the odds are looking homeless.",
+        "absolutely. trust the process.",
+        "no. even the void said pass.",
+        "do it. worst case, it becomes server lore.",
+        "signs point to yes, somehow.",
+        "not now. the timeline is unstable.",
+    ],
+    "rate": [
+        "{target} has {number}% DECAY aura. dangerous levels detected.",
+        "{target} is {number}% cooked. recovery may be possible.",
+        "{target} has {number}% leaderboard potential. maybe built different.",
+        "{target} is {number}% useful and {rest}% side quest.",
+        "{target} has {number}% luck. RNG is either blessing or bullying them.",
+        "{target} has {number}% braincells active. server performance may vary.",
+        "{target} is {number}% Guild material. the council is watching.",
+        "{target} has {number}% chaos energy. keep an eye on this creature.",
+        "{target} is {number}% carried. no further questions.",
+        "{target} has {number}% villain arc progression.",
+    ],
+}
+
+
+def pick(key, **kwargs):
+    return random.choice(PHRASES[key]).format(**kwargs)
 
 
 def now_utc():
@@ -50,10 +195,34 @@ async def send_log(guild, title, description, color=DECAY_RED):
         pass
 
 
-def owner_only():
+def has_any_role(member, role_ids):
+    return isinstance(member, discord.Member) and any(role.id in role_ids for role in member.roles)
+
+
+def is_oblivion(member):
+    return has_any_role(member, [OBLIVION_ROLE_ID])
+
+
+def require_roles(role_ids):
     async def predicate(ctx):
-        return isinstance(ctx.author, discord.Member) and any(role.id == OWNER_ROLE_ID for role in ctx.author.roles)
+        return has_any_role(ctx.author, role_ids)
     return commands.check(predicate)
+
+
+def setup_only():
+    return require_roles([OBLIVION_ROLE_ID])
+
+
+def full_staff_only():
+    return require_roles(FULL_STAFF_ROLE_IDS)
+
+
+def basic_staff_only():
+    return require_roles(BASIC_STAFF_ROLE_IDS)
+
+
+def ticket_staff_only():
+    return require_roles(TICKET_STAFF_ROLE_IDS)
 
 
 def init_db():
@@ -125,6 +294,32 @@ def parse_duration(duration_text):
     return timedelta(hours=amount) if match.group(2) == "h" else timedelta(days=amount)
 
 
+def format_remaining(delta):
+    seconds = max(1, int(delta.total_seconds()))
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    return f"{minutes or 1}m"
+
+
+async def check_abuse_limit(ctx, action):
+    if is_oblivion(ctx.author):
+        return True
+    key = (ctx.guild.id, ctx.author.id, action)
+    cutoff = now_utc() - ABUSE_WINDOW
+    timestamps = [t for t in mod_action_history.get(key, []) if t > cutoff]
+    if len(timestamps) >= ABUSE_LIMIT:
+        remaining = ABUSE_WINDOW - (now_utc() - min(timestamps))
+        text = pick("cooldown", time=format_remaining(remaining), action=action)
+        await ctx.send(embed=make_error_embed(text))
+        await send_log(ctx.guild, "Safety Limit Triggered", f"**Staff:** {ctx.author.mention}\n**Action:** `{action}`\n**Limit:** `{ABUSE_LIMIT}` per 6h\n**Remaining:** `{format_remaining(remaining)}`", discord.Color.orange())
+        return False
+    timestamps.append(now_utc())
+    mod_action_history[key] = timestamps
+    return True
+
+
 async def get_user_from_text(guild, target_text):
     if not target_text:
         return None
@@ -154,13 +349,13 @@ def can_punish(ctx, target):
     if not isinstance(target, discord.Member):
         return True, None
     if target.id == ctx.author.id:
-        return False, "❌ **Action blocked:** You cannot punish **yourself**."
+        return False, "you tried to moderate yourself. bro is fighting ghosts."
     if target.id == ctx.guild.owner_id:
-        return False, "❌ **Action blocked:** You cannot punish the **server owner**."
+        return False, "nice try, but the server owner has plot armor."
     if ctx.author.id != ctx.guild.owner_id and ctx.author.top_role <= target.top_role:
-        return False, "❌ **Action blocked:** That member has an **equal or higher role** than you."
+        return False, "target has equal or higher role. the food chain said no."
     if ctx.guild.me.top_role <= target.top_role:
-        return False, "❌ **Action blocked:** My role is **not high enough** to punish that member."
+        return False, "my role is too low to touch that user. give me more aura first."
     return True, None
 
 
@@ -168,16 +363,16 @@ def create_apply_embed():
     embed = make_embed(
         "Apply for DECAY",
         "Do you want to join us?\n\n"
-        "**DECAY** is our main guild, built for top-level players who want to compete, improve, and represent one of the strongest communities in the game.\n\n"
+        "**DECAY** is our main Guild, built for top-level players who want to compete, improve, and represent one of the strongest communities in the game.\n\n"
         "We are looking for dedicated members with strong units, deep game knowledge, competitive mentality, and true loyalty to **DECAY**.\n\n"
         "**REQUIREMENTS:**\n"
         "- **Meta units** — Own strong units from the current **top meta**\n"
         "- **Game knowledge** — Have an **advanced understanding** of the game\n"
         "- **Competitive mindset** — Be competitive and motivated to improve\n"
         "- **Leaderboard runs** — Understand, or be willing to learn, **leaderboard strategies and team coordination**\n"
-        "- **Guild investment** — Be willing to contribute a significant amount of resources into **guild features** such as **Leveling Chambers**, **Mining Rooms**, and future guild upgrades\n"
+        "- **Guild investment** — Be willing to contribute a significant amount of resources into **Guild features** such as **Leveling Chambers**, **Mining Rooms**, and future Guild upgrades\n"
         "- **Loyalty** — Stay loyal and committed to **DECAY**\n"
-        "- **Teamwork** — Be respectful, mature, and able to work with other guild members\n\n"
+        "- **Teamwork** — Be respectful, mature, and able to work with other Guild members\n\n"
         "**EXTRA INFORMATION:**\n"
         "Applying does **not** guarantee acceptance.\n\n"
         "Staff may ask for extra information about your units, progress, activity, experience, and availability.\n\n"
@@ -197,13 +392,13 @@ def create_rules_embed():
         "- **Respect everyone** — No harassment, hate speech, toxicity, threats, or personal attacks.\n"
         "- **No spam** — Avoid flooding chats, repeated messages, excessive mentions, or useless pings.\n"
         "- **Use channels properly** — Keep conversations in the correct channels.\n"
-        "- **No drama** — Do not bring personal conflicts, guild drama, or unnecessary arguments into the server.\n"
+        "- **No drama** — Do not bring personal conflicts, Guild drama, or unnecessary arguments into the server.\n"
         "- **No NSFW or inappropriate content** — Keep all content safe and appropriate.\n"
         "- **No scams or suspicious links** — Do not post phishing links, fake giveaways, or unsafe websites.\n"
         "- **Follow owner decisions** — Owners have the final say in moderation and server management.\n"
-        "- **Represent DECAY properly** — If you are part of the guild, act with loyalty, maturity, and respect.\n\n"
+        "- **Represent DECAY properly** — If you are part of the Guild, act with loyalty, maturity, and respect.\n\n"
         "**PUNISHMENTS:**\n"
-        "Breaking the rules may result in warnings, timeouts, kicks, or bans depending on the severity.\n\n"
+        "Breaking the rules may result in timeouts, kicks, or bans depending on the severity.\n\n"
         "By staying in this server, you agree to follow these rules."
     )
     embed.set_thumbnail(url=DECAY_LOGO_URL)
@@ -215,11 +410,11 @@ def create_suggestions_embed():
     embed = make_embed(
         "Suggestions",
         "Help us improve **DECAY**.\n\n"
-        "This channel is for suggestions related to the server, guild systems, events, channels, roles, bots, or community ideas.\n\n"
+        "This channel is for suggestions related to the server, Guild systems, events, channels, roles, bots, or community ideas.\n\n"
         "**HOW TO SUGGEST:**\n"
         "- Explain your idea clearly.\n"
         "- Keep it realistic and useful.\n"
-        "- Give details if the suggestion affects the guild or server structure.\n"
+        "- Give details if the suggestion affects the Guild or server structure.\n"
         "- Do not spam the same suggestion multiple times.\n"
         "- Respect other people’s opinions.\n\n"
         "**EXAMPLES:**\n"
@@ -238,21 +433,19 @@ def create_suggestions_embed():
 def create_contributions_embed():
     embed = make_embed(
         "Guild Contributions",
-        "Use this channel to record every time you contribute resources to the **DECAY** guild.\n\n"
-        "Keeping track of contributions helps us see who is actively supporting the guild and investing in our progress.\n\n"
+        "Use this channel to share the resources you contribute to the **DECAY Guild**.\n\n"
         "**WHAT TO POST:**\n"
-        "- Your **Roblox username**\n"
-        "- The **resource or feature** you contributed to\n"
-        "- The **amount** contributed\n"
-        "- A **screenshot** as proof, if possible\n\n"
-        "**FORMAT:**\n"
-        "```\nRoblox username:\nFeature / room:\nAmount contributed:\nProof:\n```\n"
+        "- The resources you contributed\n"
+        "- The amount contributed\n"
+        "- A screenshot if possible\n\n"
         "**EXAMPLES:**\n"
-        "- Leveling Chambers contributions\n"
-        "- Mining Rooms contributions\n"
-        "- Future guild upgrades\n"
-        "- Any other important guild resource investment\n\n"
-        "Thank you for helping **DECAY** grow stronger."
+        "- 200K GEMS\n"
+        "- 500K GOLD\n"
+        "- 25 STAT REROLLS\n"
+        "- 100 TRAIT REROLLS\n\n"
+        "**IMPORTANT:**\n"
+        "Fake contributions may result in moderation action.\n\n"
+        "Every contribution helps **DECAY** grow stronger."
     )
     embed.set_thumbnail(url=DECAY_LOGO_URL)
     embed.set_footer(text="DECAY Guild Contributions")
@@ -300,7 +493,7 @@ class GuildApplyView(discord.ui.View):
             member: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, attach_files=True, embed_links=True),
             guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True),
         }
-        for role_id in STAFF_ROLE_IDS:
+        for role_id in TICKET_STAFF_ROLE_IDS:
             role = guild.get_role(role_id)
             if role:
                 overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True)
@@ -308,11 +501,11 @@ class GuildApplyView(discord.ui.View):
             name=f"decay-apply-{safe_channel_name(member.name)}",
             category=category,
             overwrites=overwrites,
-            topic=f"DECAY guild application ticket | {topic_key}",
+            topic=f"DECAY Guild application ticket | {topic_key}",
             reason=f"DECAY application ticket created by {member}",
         )
-        await ticket_channel.send(content=f"{member.mention} " + " ".join(f"<@&{role_id}>" for role_id in STAFF_ROLE_IDS), embed=create_ticket_questions_embed(member))
-        await send_log(guild, "Ticket Created", f"**User:** {member.mention} (`{member.id}`)\n**Ticket:** {ticket_channel.mention}\n**Type:** DECAY guild application")
+        await ticket_channel.send(content=f"{member.mention} " + " ".join(f"<@&{role_id}>" for role_id in TICKET_STAFF_ROLE_IDS), embed=create_ticket_questions_embed(member))
+        await send_log(guild, "Ticket Created", f"**User:** {member.mention} (`{member.id}`)\n**Ticket:** {ticket_channel.mention}\n**Type:** DECAY Guild application")
         await interaction.response.send_message(f"Your **DECAY application ticket** has been created: {ticket_channel.mention}", ephemeral=True)
 
 
@@ -334,12 +527,15 @@ async def on_member_join(member):
             f"Hey {member.mention}, welcome to **DECAY**!\n\n"
             f"Please check <#{RULES_CHANNEL_ID}> before chatting.\n"
             f"Keep an eye on <#{ANNOUNCEMENTS_CHANNEL_ID}> for important updates.\n\n"
-            f"If you want to apply to a **DECAY guild**, go to <#{GUILD_APPLY_CHANNEL_ID}> and create a ticket for the guild you want to join."
+            f"If you want to apply to a **DECAY Guild**, go to <#{GUILD_APPLY_CHANNEL_ID}> and create a ticket for the Guild you want to join."
         )
         embed.set_image(url=WELCOME_BANNER_URL)
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.set_footer(text=f"Member #{member.guild.member_count} • DECAY")
         await welcome_channel.send(content=member.mention, embed=embed)
+    general_channel = member.guild.get_channel(GENERAL_CHANNEL_ID)
+    if general_channel:
+        await general_channel.send(f"yo {member.mention} welcome to DECAY!")
     await send_log(member.guild, "Member Joined", f"**User:** {member.mention} (`{member.id}`)\n**Account created:** <t:{int(member.created_at.timestamp())}:R>\n**Member count:** {member.guild.member_count}")
 
 
@@ -347,6 +543,21 @@ async def on_member_join(member):
 async def on_member_remove(member):
     joined_text = f"<t:{int(member.joined_at.timestamp())}:R>" if member.joined_at else "Unknown"
     await send_log(member.guild, "Member Left", f"**User:** `{member}` (`{member.id}`)\n**Joined server:** {joined_text}\n**Member count:** {member.guild.member_count}", discord.Color.dark_red())
+
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    if message.guild and message.channel.id == SUGGESTIONS_CHANNEL_ID:
+        try:
+            await message.add_reaction("✅")
+            await message.add_reaction("❌")
+        except discord.DiscordException:
+            pass
+    if bot.user and bot.user in message.mentions and not message.content.strip().startswith("!"):
+        await message.reply(random.choice(PHRASES["mention"]), mention_author=False)
+    await bot.process_commands(message)
 
 
 @tasks.loop(minutes=1)
@@ -381,39 +592,56 @@ async def ping(ctx):
     await ctx.send("Pong 🏓")
 
 
+@bot.command(name="8ball")
+async def eight_ball(ctx, *, question=None):
+    if not question:
+        await ctx.send(embed=make_error_embed(pick("missing")))
+        return
+    await ctx.send(embed=make_embed("8ball", random.choice(PHRASES["8ball"])))
+
+
 @bot.command()
-@owner_only()
+async def rate(ctx, *, target=None):
+    if not target:
+        target = ctx.author.mention
+    number = random.randint(0, 100)
+    rest = 100 - number
+    await ctx.send(embed=make_embed("Rate Machine", pick("rate", target=target, number=number, rest=rest)))
+
+
+@bot.command()
+@setup_only()
 async def guildapplysetup(ctx):
     await ctx.send(embed=create_apply_embed(), view=GuildApplyView())
     await send_log(ctx.guild, "Guild Apply Setup Sent", f"**Moderator:** {ctx.author.mention}\n**Channel:** {ctx.channel.mention}")
 
 
 @bot.command()
-@owner_only()
+@setup_only()
 async def rulesembed(ctx):
     await ctx.send(embed=create_rules_embed())
     await send_log(ctx.guild, "Rules Embed Sent", f"**Moderator:** {ctx.author.mention}\n**Channel:** {ctx.channel.mention}")
 
 
 @bot.command()
-@owner_only()
+@setup_only()
 async def suggestionsembed(ctx):
     await ctx.send(embed=create_suggestions_embed())
     await send_log(ctx.guild, "Suggestions Embed Sent", f"**Moderator:** {ctx.author.mention}\n**Channel:** {ctx.channel.mention}")
 
 
 @bot.command()
-@owner_only()
+@setup_only()
 async def contributionsembed(ctx):
     await ctx.send(embed=create_contributions_embed())
     await send_log(ctx.guild, "Contributions Embed Sent", f"**Moderator:** {ctx.author.mention}\n**Channel:** {ctx.channel.mention}")
 
 
 @bot.command()
-@owner_only()
+@ticket_staff_only()
 async def ticketclose(ctx):
     if not ctx.channel.topic or "DECAY_APPLICATION_USER:" not in ctx.channel.topic:
-        await ctx.send(embed=make_error_embed("This command can only be used inside a **DECAY application ticket**."))
+        await ctx.send(embed=make_error_embed("this command only works inside an application ticket."))
         return
     match = re.search(r"DECAY_APPLICATION_USER:(\d+)", ctx.channel.topic)
     user_id = int(match.group(1)) if match else None
@@ -422,57 +650,40 @@ async def ticketclose(ctx):
         await ctx.channel.set_permissions(member, view_channel=False, send_messages=False)
     if not ctx.channel.name.startswith("closed-"):
         await ctx.channel.edit(name=f"closed-{ctx.channel.name[:80]}")
-    await ctx.send(embed=make_embed("Ticket Closed", "This **application ticket** has been closed. Staff can still review it.\nUse `!ticketdelete` to delete it permanently."))
+    await ctx.send(embed=make_embed("Ticket Closed", pick("ticketclose")))
     await send_log(ctx.guild, "Ticket Closed", f"**Closed by:** {ctx.author.mention}\n**Ticket:** {ctx.channel.mention}\n**Applicant ID:** `{user_id or 'Unknown'}`")
 
 
 @bot.command()
-@owner_only()
+@ticket_staff_only()
 async def ticketdelete(ctx):
     if not ctx.channel.topic or "DECAY_APPLICATION_USER:" not in ctx.channel.topic:
-        await ctx.send(embed=make_error_embed("This command can only be used inside a **DECAY application ticket**."))
+        await ctx.send(embed=make_error_embed("this command only works inside an application ticket."))
         return
     ticket_name = ctx.channel.name
     ticket_id = ctx.channel.id
     match = re.search(r"DECAY_APPLICATION_USER:(\d+)", ctx.channel.topic)
     user_id = int(match.group(1)) if match else None
     await send_log(ctx.guild, "Ticket Deleted", f"**Deleted by:** {ctx.author.mention}\n**Ticket:** `#{ticket_name}` (`{ticket_id}`)\n**Applicant ID:** `{user_id or 'Unknown'}`")
-    await ctx.send(embed=make_embed("Ticket Deleted", "This channel will be deleted now."))
+    await ctx.send(embed=make_embed("Ticket Deleted", pick("ticketdelete")))
     await ctx.channel.delete(reason=f"Application ticket deleted by {ctx.author}")
 
 
 @bot.command()
-@owner_only()
-async def warn(ctx, target_text: str = None, *, reason=None):
-    if not target_text:
-        await ctx.send(embed=make_error_embed("Missing **user**. Usage: `!warn @user reason`"))
-        return
-    target = await get_user_from_text(ctx.guild, target_text)
-    if not target:
-        await ctx.send(embed=make_error_embed("User not found. Use a **mention** or valid **user ID**."))
-        return
-    allowed, error = can_punish(ctx, target)
-    if not allowed:
-        await ctx.send(embed=make_error_embed(error))
-        return
-    log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "WARN", None, reason)
-    await ctx.send(embed=make_embed("User Warned", f"**User:** {target_name(target)}\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
-    await log_mod_action(ctx, "Moderation: Warn", target, reason, log_id)
-
-
-@bot.command()
-@owner_only()
+@basic_staff_only()
 async def timeout(ctx, target_text: str = None, duration_text: str = None, *, reason=None):
     if not target_text or not duration_text:
-        await ctx.send(embed=make_error_embed("Missing **arguments**. Usage: `!timeout @user 1h reason` or `!timeout @user 2d reason`"))
+        await ctx.send(embed=make_error_embed("Usage: `!timeout @user 1h reason` or `!timeout @user 2d reason`"))
+        return
+    if not await check_abuse_limit(ctx, "timeout"):
         return
     target = await get_user_from_text(ctx.guild, target_text)
     duration = parse_duration(duration_text)
     if not target or not isinstance(target, discord.Member):
-        await ctx.send(embed=make_error_embed("Member not found. **Timeouts only work** on users currently in the server."))
+        await ctx.send(embed=make_error_embed("member not found. timeouts only work on users currently in the server."))
         return
     if not duration:
-        await ctx.send(embed=make_error_embed("Invalid **duration**. Use `1h`, `6h`, `1d`, or `7d`."))
+        await ctx.send(embed=make_error_embed("invalid duration. use `1h`, `6h`, `1d`, or `7d`."))
         return
     allowed, error = can_punish(ctx, target)
     if not allowed:
@@ -480,19 +691,19 @@ async def timeout(ctx, target_text: str = None, duration_text: str = None, *, re
         return
     await target.timeout(now_utc() + duration, reason=reason or f"Timed out by {ctx.author}")
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "TIMEOUT", duration_text, reason)
-    await ctx.send(embed=make_embed("User Timed Out", f"**User:** {target.mention}\n**Duration:** `{duration_text}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+    await ctx.send(embed=make_embed("User Timed Out", f"{pick('timeout', user=target.mention, duration=duration_text)}\n\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
     await log_mod_action(ctx, "Moderation: Timeout", target, reason, log_id, duration_text)
 
 
 @bot.command()
-@owner_only()
+@basic_staff_only()
 async def untimeout(ctx, target_text: str = None, *, reason=None):
     if not target_text:
-        await ctx.send(embed=make_error_embed("Missing **user**. Usage: `!untimeout @user reason`"))
+        await ctx.send(embed=make_error_embed("Usage: `!untimeout @user reason`"))
         return
     target = await get_user_from_text(ctx.guild, target_text)
     if not target or not isinstance(target, discord.Member):
-        await ctx.send(embed=make_error_embed("Member not found. **Untimeout only works** on users currently in the server."))
+        await ctx.send(embed=make_error_embed("member not found. untimeout only works on users currently in the server."))
         return
     allowed, error = can_punish(ctx, target)
     if not allowed:
@@ -500,19 +711,21 @@ async def untimeout(ctx, target_text: str = None, *, reason=None):
         return
     await target.timeout(None, reason=reason or f"Timeout removed by {ctx.author}")
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "UNTIMEOUT", None, reason)
-    await ctx.send(embed=make_embed("Timeout Removed", f"**User:** {target.mention}\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+    await ctx.send(embed=make_embed("Timeout Removed", f"{pick('untimeout', user=target.mention)}\n\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
     await log_mod_action(ctx, "Moderation: Untimeout", target, reason, log_id)
 
 
 @bot.command()
-@owner_only()
+@full_staff_only()
 async def kick(ctx, target_text: str = None, *, reason=None):
     if not target_text:
-        await ctx.send(embed=make_error_embed("Missing **user**. Usage: `!kick @user reason`"))
+        await ctx.send(embed=make_error_embed("Usage: `!kick @user reason`"))
+        return
+    if not await check_abuse_limit(ctx, "kick"):
         return
     target = await get_user_from_text(ctx.guild, target_text)
     if not target or not isinstance(target, discord.Member):
-        await ctx.send(embed=make_error_embed("Member not found. **Kicks only work** on users currently in the server."))
+        await ctx.send(embed=make_error_embed("member not found. kicks only work on users currently in the server."))
         return
     allowed, error = can_punish(ctx, target)
     if not allowed:
@@ -520,19 +733,21 @@ async def kick(ctx, target_text: str = None, *, reason=None):
         return
     await target.kick(reason=reason or f"Kicked by {ctx.author}")
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "KICK", None, reason)
-    await ctx.send(embed=make_embed("User Kicked", f"**User:** `{target}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+    await ctx.send(embed=make_embed("User Kicked", f"{pick('kick', user=f'`{target}`')}\n\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
     await log_mod_action(ctx, "Moderation: Kick", target, reason, log_id)
 
 
 @bot.command()
-@owner_only()
+@full_staff_only()
 async def ban(ctx, target_text: str = None, duration_text: str = None, *, reason=None):
     if not target_text:
-        await ctx.send(embed=make_error_embed("Missing **user**. Usage: `!ban @user reason` or `!ban @user 7d reason`"))
+        await ctx.send(embed=make_error_embed("Usage: `!ban @user reason` or `!ban @user 7d reason`"))
+        return
+    if not await check_abuse_limit(ctx, "ban"):
         return
     target = await get_user_from_text(ctx.guild, target_text)
     if not target:
-        await ctx.send(embed=make_error_embed("User not found. Use a **mention** or valid **user ID**."))
+        await ctx.send(embed=make_error_embed("user not found. use a mention or valid user ID."))
         return
     duration = parse_duration(duration_text) if duration_text else None
     if duration_text and not duration:
@@ -546,46 +761,46 @@ async def ban(ctx, target_text: str = None, duration_text: str = None, *, reason
     if duration:
         add_active_tempban(ctx.guild.id, target.id, now_utc() + duration)
         log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "TEMP_BAN", duration_text, reason)
-        await ctx.send(embed=make_embed("User Temporarily Banned", f"**User:** `{target}`\n**Duration:** `{duration_text}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+        await ctx.send(embed=make_embed("User Temporarily Banned", f"{pick('tempban', user=f'`{target}`', duration=duration_text)}\n\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
         await log_mod_action(ctx, "Moderation: Temporary Ban", target, reason, log_id, duration_text)
     else:
         log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "PERMA_BAN", None, reason)
-        await ctx.send(embed=make_embed("User Permanently Banned", f"**User:** `{target}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+        await ctx.send(embed=make_embed("User Permanently Banned", f"{pick('permban', user=f'`{target}`')}\n\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
         await log_mod_action(ctx, "Moderation: Permanent Ban", target, reason, log_id)
 
 
 @bot.command()
-@owner_only()
+@full_staff_only()
 async def unban(ctx, target_text: str = None, *, reason=None):
     if not target_text:
-        await ctx.send(embed=make_error_embed("Missing **user ID**. Usage: `!unban userID reason`"))
+        await ctx.send(embed=make_error_embed("Usage: `!unban userID reason`"))
         return
     target = await get_user_from_text(ctx.guild, target_text)
     if not target:
-        await ctx.send(embed=make_error_embed("User not found. Use a valid **user ID**."))
+        await ctx.send(embed=make_error_embed("user not found. use a valid user ID."))
         return
     try:
         await ctx.guild.unban(target, reason=reason or f"Unbanned by {ctx.author}")
     except discord.NotFound:
-        await ctx.send(embed=make_error_embed("That user is **not banned** in this server."))
+        await ctx.send(embed=make_error_embed("that user is not banned in this server."))
         return
     remove_active_tempban(ctx.guild.id, target.id)
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "UNBAN", None, reason)
-    await ctx.send(embed=make_embed("User Unbanned", f"**User:** `{target}`\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
+    await ctx.send(embed=make_embed("User Unbanned", f"{pick('unban', user=f'`{target}`')}\n\n**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`"))
     await log_mod_action(ctx, "Moderation: Unban", target, reason, log_id)
 
 
 @bot.command()
-@owner_only()
+@basic_staff_only()
 async def clear(ctx, amount: int = None):
     if amount is None:
-        await ctx.send(embed=make_error_embed("Missing **amount**. Usage: `!clear 10`"))
+        await ctx.send(embed=make_error_embed("Usage: `!clear 10`"))
         return
     if amount < 1 or amount > 100:
-        await ctx.send(embed=make_error_embed("Invalid **amount**. Choose a number between **1 and 100**."))
+        await ctx.send(embed=make_error_embed("invalid amount. choose a number between 1 and 100."))
         return
     deleted = await ctx.channel.purge(limit=amount + 1)
-    confirmation = await ctx.send(embed=make_embed("Messages Cleared", f"Deleted **{len(deleted) - 1}** messages."))
+    confirmation = await ctx.send(embed=make_embed("Messages Cleared", pick("clear", amount=len(deleted) - 1)))
     await send_log(ctx.guild, "Moderation: Clear", f"**Moderator:** {ctx.author.mention}\n**Channel:** {ctx.channel.mention}\n**Messages deleted:** `{len(deleted) - 1}`")
     try:
         await confirmation.delete(delay=5)
@@ -594,14 +809,14 @@ async def clear(ctx, amount: int = None):
 
 
 @bot.command()
-@owner_only()
+@basic_staff_only()
 async def modlog(ctx, target_text: str = None):
     if not target_text:
-        await ctx.send(embed=make_error_embed("Missing **user**. Usage: `!modlog @user`"))
+        await ctx.send(embed=make_error_embed("Usage: `!modlog @user`"))
         return
     target = await get_user_from_text(ctx.guild, target_text)
     if not target:
-        await ctx.send(embed=make_error_embed("User not found. Use a **mention** or valid **user ID**."))
+        await ctx.send(embed=make_error_embed("user not found. use a mention or valid user ID."))
         return
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -609,7 +824,7 @@ async def modlog(ctx, target_text: str = None):
     rows = cursor.fetchall()
     conn.close()
     if not rows:
-        await ctx.send(embed=make_error_embed("No **moderation history** found for this user."))
+        await ctx.send(embed=make_error_embed("no moderation history found for this user."))
         return
     embed = make_embed(f"Modlog for {target}", "Latest **10 moderation cases** for this user.")
     for log_id, action, duration, reason, moderator_id, created_at in rows:
@@ -619,10 +834,10 @@ async def modlog(ctx, target_text: str = None):
 
 
 @bot.command(name="case")
-@owner_only()
+@basic_staff_only()
 async def view_case(ctx, log_id: int = None):
     if log_id is None:
-        await ctx.send(embed=make_error_embed("Missing **case ID**. Usage: `!case 12`"))
+        await ctx.send(embed=make_error_embed("Usage: `!case 12`"))
         return
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -630,7 +845,7 @@ async def view_case(ctx, log_id: int = None):
     row = cursor.fetchone()
     conn.close()
     if not row:
-        await ctx.send(embed=make_error_embed("Case not found. Check the **case ID** and try again."))
+        await ctx.send(embed=make_error_embed("case not found. check the case ID and try again."))
         return
     user_id, moderator_id, action, duration, reason, created_at = row
     embed = make_embed(f"Case #{log_id}", "Moderation case details.")
@@ -643,17 +858,17 @@ async def view_case(ctx, log_id: int = None):
 
 
 @bot.command()
-@owner_only()
+@full_staff_only()
 async def reason(ctx, log_id: int = None, *, new_reason=None):
     if log_id is None or not new_reason:
-        await ctx.send(embed=make_error_embed("Missing **arguments**. Usage: `!reason caseID new reason`"))
+        await ctx.send(embed=make_error_embed("Usage: `!reason caseID new reason`"))
         return
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM mod_logs WHERE guild_id = ? AND id = ?", (ctx.guild.id, log_id))
     if not cursor.fetchone():
         conn.close()
-        await ctx.send(embed=make_error_embed("Case not found. Check the **case ID** and try again."))
+        await ctx.send(embed=make_error_embed("case not found. check the case ID and try again."))
         return
     cursor.execute("UPDATE mod_logs SET reason = ? WHERE guild_id = ? AND id = ?", (new_reason, ctx.guild.id, log_id))
     conn.commit()
@@ -663,17 +878,17 @@ async def reason(ctx, log_id: int = None, *, new_reason=None):
 
 
 @bot.command()
-@owner_only()
+@full_staff_only()
 async def removelog(ctx, log_id: int = None):
     if log_id is None:
-        await ctx.send(embed=make_error_embed("Missing **case ID**. Usage: `!removelog 12`"))
+        await ctx.send(embed=make_error_embed("Usage: `!removelog 12`"))
         return
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM mod_logs WHERE guild_id = ? AND id = ?", (ctx.guild.id, log_id))
     if not cursor.fetchone():
         conn.close()
-        await ctx.send(embed=make_error_embed("Case not found. Check the **case ID** and try again."))
+        await ctx.send(embed=make_error_embed("case not found. check the case ID and try again."))
         return
     cursor.execute("DELETE FROM mod_logs WHERE guild_id = ? AND id = ?", (ctx.guild.id, log_id))
     conn.commit()
@@ -682,7 +897,6 @@ async def removelog(ctx, log_id: int = None):
     await send_log(ctx.guild, "Moderation: Case Removed", f"**Moderator:** {ctx.author.mention}\n**Removed Case ID:** `#{log_id}`")
 
 
-@warn.error
 @timeout.error
 @untimeout.error
 @kick.error
@@ -701,13 +915,13 @@ async def removelog(ctx, log_id: int = None):
 @ticketdelete.error
 async def command_error(ctx, error):
     if isinstance(error, commands.CheckFailure):
-        await ctx.send(embed=make_error_embed("Only members with the **Owner** role can use this command."))
+        await ctx.send(embed=make_error_embed(random.choice(PHRASES["noperms"])))
     elif isinstance(error, commands.BadArgument):
-        await ctx.send(embed=make_error_embed("Invalid **argument type**. Check the command format and try again."))
+        await ctx.send(embed=make_error_embed("invalid argument type. check the command format and try again."))
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(embed=make_error_embed("Missing **arguments**. Check the command usage and try again."))
+        await ctx.send(embed=make_error_embed(random.choice(PHRASES["missing"])))
     else:
-        await ctx.send(embed=make_error_embed("An **unexpected error** occurred while running this command."))
+        await ctx.send(embed=make_error_embed("unexpected error. the bot tripped over a cable or something."))
         raise error
 
 
