@@ -1,4 +1,5 @@
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 import os
 import re
@@ -68,6 +69,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+bot.slash_synced = False
+xp_group = app_commands.Group(name="xp", description="XP system commands")
 
 PHRASES = {
     "timeout": [
@@ -214,6 +217,45 @@ def make_embed(title, description, color=DECAY_RED):
     return embed
 
 
+def create_commands_embed():
+    embed = make_embed(
+        "DECAY Bot Commands",
+        "Quick command list. Slash versions are available for fun and XP commands."
+    )
+    embed.set_thumbnail(url=DECAY_LOGO_URL)
+    embed.add_field(
+        name="General / Fun",
+        value="`!ping`\n`!commands`\n`!8ball question` / `/8ball`\n`!rate target` / `/rate`",
+        inline=False,
+    )
+    embed.add_field(
+        name="XP",
+        value="`!level` / `/level`\n`!level @user` / `/level user`\n`!leaderboard` / `/leaderboard`\n`!xpchanneloff` / `/xp channel_off`\n`!xpchannelon` / `/xp channel_on`\n`!xpexcluded` / `/xp excluded`",
+        inline=False,
+    )
+    embed.add_field(
+        name="Setup",
+        value="`!guildapplysetup`\n`!rulesembed`\n`!suggestionsembed`\n`!contributionsembed`",
+        inline=False,
+    )
+    embed.add_field(
+        name="Tickets",
+        value="`!ticketclose`\n`!ticketdelete`",
+        inline=False,
+    )
+    embed.add_field(
+        name="Moderation",
+        value="`!timeout @user 1h reason`\n`!untimeout @user reason`\n`!clear amount`\n`!kick @user reason`\n`!ban @user reason`\n`!ban @user 7d reason`\n`!unban userID reason`",
+        inline=False,
+    )
+    embed.add_field(
+        name="Modlogs",
+        value="`!modlog @user`\n`!case caseID`\n`!reason caseID new reason`\n`!removelog caseID`",
+        inline=False,
+    )
+    return embed
+
+
 async def send_log(guild, title, description, color=DECAY_RED):
     channel = guild.get_channel(LOG_CHANNEL_ID)
     if not channel:
@@ -228,6 +270,10 @@ async def send_log(guild, title, description, color=DECAY_RED):
 
 def has_any_role(member, role_ids):
     return isinstance(member, discord.Member) and any(role.id in role_ids for role in member.roles)
+
+
+def interaction_has_any_role(interaction, role_ids):
+    return isinstance(interaction.user, discord.Member) and any(role.id in role_ids for role in interaction.user.roles)
 
 
 def is_oblivion(member):
@@ -699,6 +745,14 @@ async def on_ready():
     bot.add_view(GuildApplyView())
     if not check_temp_bans.is_running():
         check_temp_bans.start()
+    if not bot.slash_synced:
+        for guild in bot.guilds:
+            try:
+                bot.tree.copy_global_to(guild=guild)
+                await bot.tree.sync(guild=guild)
+            except discord.DiscordException:
+                pass
+        bot.slash_synced = True
     print(f"Bot connected as {bot.user}")
 
 
@@ -772,9 +826,38 @@ async def log_mod_action(ctx, title, target, reason, log_id, duration=None):
     await send_log(ctx.guild, title, f"**User:** {target_name(target)} (`{target.id}`)\n{duration_line}**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`")
 
 
+async def level_text(guild, target):
+    xp, level_value = get_xp_data(guild.id, target.id)
+    progress, needed = xp_progress(xp, level_value)
+    rank = xp_rank_name(level_value)
+    rank_text = f" | rank: {rank}" if rank else ""
+    if level_value >= MAX_LEVEL:
+        return f"{target.mention} is level {level_value}{rank_text}. max level reached, bro finished the current season."
+    return f"{target.mention} is level {level_value}{rank_text}. XP: {progress}/{needed} until level {level_value + 1}."
+
+
+def leaderboard_text(guild):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, xp, level FROM user_xp WHERE guild_id = ? ORDER BY level DESC, xp DESC LIMIT 10", (guild.id,))
+    rows = cursor.fetchall()
+    conn.close()
+    if not rows:
+        return "leaderboard is empty. chat XP economy has not started yet."
+    lines = []
+    for index, (user_id, xp, level_value) in enumerate(rows, start=1):
+        lines.append(f"{index}. <@{user_id}> — Level {level_value} | {xp} XP")
+    return "**DECAY XP Leaderboard**\n" + "\n".join(lines)
+
+
 @bot.command()
 async def ping(ctx):
     await ctx.send("Pong 🏓")
+
+
+@bot.command(name="commands")
+async def commands_list(ctx):
+    await ctx.send(embed=create_commands_embed())
 
 
 @bot.command(name="8ball")
@@ -803,30 +886,12 @@ async def level(ctx, target_text: str = None):
             await ctx.send("user not found. use a mention or valid user ID.")
             return
         target = found
-    xp, level_value = get_xp_data(ctx.guild.id, target.id)
-    progress, needed = xp_progress(xp, level_value)
-    rank = xp_rank_name(level_value)
-    rank_text = f" | rank: {rank}" if rank else ""
-    if level_value >= MAX_LEVEL:
-        await ctx.send(f"{target.mention} is level {level_value}{rank_text}. max level reached, bro finished the current season.")
-    else:
-        await ctx.send(f"{target.mention} is level {level_value}{rank_text}. XP: {progress}/{needed} until level {level_value + 1}.")
+    await ctx.send(await level_text(ctx.guild, target))
 
 
 @bot.command()
 async def leaderboard(ctx):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_id, xp, level FROM user_xp WHERE guild_id = ? ORDER BY level DESC, xp DESC LIMIT 10", (ctx.guild.id,))
-    rows = cursor.fetchall()
-    conn.close()
-    if not rows:
-        await ctx.send("leaderboard is empty. chat XP economy has not started yet.")
-        return
-    lines = []
-    for index, (user_id, xp, level_value) in enumerate(rows, start=1):
-        lines.append(f"{index}. <@{user_id}> — Level {level_value} | {xp} XP")
-    await ctx.send("**DECAY XP Leaderboard**\n" + "\n".join(lines))
+    await ctx.send(leaderboard_text(ctx.guild))
 
 
 @bot.command()
@@ -1140,6 +1205,78 @@ async def removelog(ctx, log_id: int = None):
     conn.close()
     await ctx.send(embed=make_embed("Case Removed", f"**Case ID:** `#{log_id}` has been deleted from the modlog."))
     await send_log(ctx.guild, "Moderation: Case Removed", f"**Moderator:** {ctx.author.mention}\n**Removed Case ID:** `#{log_id}`")
+
+
+@app_commands.command(name="commands", description="Show all DECAY bot commands")
+async def slash_commands(interaction: discord.Interaction):
+    await interaction.response.send_message(embed=create_commands_embed())
+
+
+@app_commands.command(name="8ball", description="Ask the DECAY 8ball a question")
+@app_commands.describe(question="Question to ask")
+async def slash_8ball(interaction: discord.Interaction, question: str):
+    await interaction.response.send_message(random.choice(PHRASES["8ball"]))
+
+
+@app_commands.command(name="rate", description="Rate anything or anyone")
+@app_commands.describe(target="Target to rate")
+async def slash_rate(interaction: discord.Interaction, target: str = None):
+    if not target:
+        target = interaction.user.mention
+    number = random.randint(0, 100)
+    rest = 100 - number
+    await interaction.response.send_message(pick("rate", target=target, number=number, rest=rest))
+
+
+@app_commands.command(name="level", description="Show your level or another member's level")
+@app_commands.describe(user="Member to check")
+async def slash_level(interaction: discord.Interaction, user: discord.Member = None):
+    target = user or interaction.user
+    await interaction.response.send_message(await level_text(interaction.guild, target))
+
+
+@app_commands.command(name="leaderboard", description="Show the DECAY XP leaderboard")
+async def slash_leaderboard(interaction: discord.Interaction):
+    await interaction.response.send_message(leaderboard_text(interaction.guild))
+
+
+@xp_group.command(name="channel_off", description="Disable XP in this channel")
+async def slash_xp_channel_off(interaction: discord.Interaction):
+    if not interaction_has_any_role(interaction, [OBLIVION_ROLE_ID]):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    set_xp_channel_disabled(interaction.guild.id, interaction.channel.id, True)
+    await interaction.response.send_message(f"XP disabled in {interaction.channel.mention}. no more chat farming here.")
+
+
+@xp_group.command(name="channel_on", description="Enable XP in this channel")
+async def slash_xp_channel_on(interaction: discord.Interaction):
+    if not interaction_has_any_role(interaction, [OBLIVION_ROLE_ID]):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    set_xp_channel_disabled(interaction.guild.id, interaction.channel.id, False)
+    await interaction.response.send_message(f"XP enabled in {interaction.channel.mention}. the grind economy is back.")
+
+
+@xp_group.command(name="excluded", description="Show channels where XP is disabled")
+async def slash_xp_excluded(interaction: discord.Interaction):
+    if not interaction_has_any_role(interaction, [OBLIVION_ROLE_ID]):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    channels = get_disabled_xp_channels(interaction.guild.id)
+    if not channels:
+        await interaction.response.send_message("no channels excluded. XP is active everywhere by default.")
+        return
+    mentions = [f"<#{channel_id}>" for channel_id in channels]
+    await interaction.response.send_message("XP is disabled in:\n" + "\n".join(mentions))
+
+
+bot.tree.add_command(slash_commands)
+bot.tree.add_command(slash_8ball)
+bot.tree.add_command(slash_rate)
+bot.tree.add_command(slash_level)
+bot.tree.add_command(slash_leaderboard)
+bot.tree.add_command(xp_group)
 
 
 @timeout.error
