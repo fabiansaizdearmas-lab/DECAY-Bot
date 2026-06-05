@@ -16,8 +16,32 @@ FRACTURE_ROLE_ID = 1509333436551401673
 WITHER_ROLE_ID = 1509335734866411560
 GUILD_CAPTAIN_ROLE_ID = 1509302357631041716
 
+ASH_ROLE_ID = 1512584016740618291
+EMBER_ROLE_ID = 1512584027708854423
+SCORCH_ROLE_ID = 1512584031685050389
+RUPTURE_ROLE_ID = 1512584036336533686
+COLLAPSE_ROLE_ID = 1512584037695488110
+CATACLYSM_ROLE_ID = 1512584039041728732
+XP_ROLE_MILESTONES = {
+    5: ASH_ROLE_ID,
+    10: EMBER_ROLE_ID,
+    15: SCORCH_ROLE_ID,
+    20: RUPTURE_ROLE_ID,
+    25: COLLAPSE_ROLE_ID,
+    30: CATACLYSM_ROLE_ID,
+}
+XP_ROLE_NAMES = {
+    5: "Ash",
+    10: "Ember",
+    15: "Scorch",
+    20: "Rupture",
+    25: "Collapse",
+    30: "Cataclysm",
+}
+
 WELCOME_CHANNEL_ID = 1509285951816335411
 GENERAL_CHANNEL_ID = 1509272809791029349
+BOT_COMMANDS_CHANNEL_ID = 1509272900732059809
 RULES_CHANNEL_ID = 1509281427689177220
 ANNOUNCEMENTS_CHANNEL_ID = 1509273242580422777
 GUILD_APPLY_CHANNEL_ID = 1509295180820381716
@@ -34,7 +58,11 @@ BASIC_STAFF_ROLE_IDS = STAFF_ROLE_IDS
 
 ABUSE_LIMIT = 3
 ABUSE_WINDOW = timedelta(hours=6)
+XP_GAIN = 10
+XP_COOLDOWN = timedelta(seconds=60)
+MAX_LEVEL = 30
 mod_action_history = {}
+last_xp_times = {}
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -162,6 +190,13 @@ PHRASES = {
         "{target} is {number}% carried. no further questions.",
         "{target} has {number}% villain arc progression.",
     ],
+    "levelup": [
+        "{user} hit level {level}. bro is farming chat XP like it's a full-time job.",
+        "{user} reached level {level}. activity detected, grass untouched.",
+        "{user} is now level {level}. chat XP economy is in shambles.",
+        "{user} leveled up to {level}. yapping finally paid rent.",
+        "{user} reached level {level}. DECAY has certified the grind.",
+    ],
 }
 
 
@@ -245,6 +280,22 @@ def init_db():
             expires_at TEXT NOT NULL
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_xp (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            xp INTEGER NOT NULL DEFAULT 0,
+            level INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS xp_disabled_channels (
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            PRIMARY KEY (guild_id, channel_id)
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -276,6 +327,143 @@ def remove_active_tempban(guild_id, user_id):
     cursor.execute("DELETE FROM active_punishments WHERE guild_id = ? AND user_id = ? AND action = 'TEMP_BAN'", (guild_id, user_id))
     conn.commit()
     conn.close()
+
+
+def xp_needed_for_level(level):
+    return 50 + ((level - 1) * 25)
+
+
+def total_xp_for_level(level):
+    total = 0
+    for current_level in range(1, level + 1):
+        total += xp_needed_for_level(current_level)
+    return total
+
+
+def level_from_xp(xp):
+    level = 0
+    while level < MAX_LEVEL and xp >= total_xp_for_level(level + 1):
+        level += 1
+    return level
+
+
+def xp_progress(xp, level):
+    if level >= MAX_LEVEL:
+        return 0, 0
+    current_floor = total_xp_for_level(level)
+    next_needed = xp_needed_for_level(level + 1)
+    progress = max(0, xp - current_floor)
+    return progress, next_needed
+
+
+def get_xp_data(guild_id, user_id):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT xp, level FROM user_xp WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
+    row = cursor.fetchone()
+    if not row:
+        cursor.execute("INSERT INTO user_xp (guild_id, user_id, xp, level) VALUES (?, ?, 0, 0)", (guild_id, user_id))
+        conn.commit()
+        conn.close()
+        return 0, 0
+    conn.close()
+    return row[0], row[1]
+
+
+def set_xp_data(guild_id, user_id, xp, level):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO user_xp (guild_id, user_id, xp, level) VALUES (?, ?, ?, ?) ON CONFLICT(guild_id, user_id) DO UPDATE SET xp = excluded.xp, level = excluded.level",
+        (guild_id, user_id, xp, level),
+    )
+    conn.commit()
+    conn.close()
+
+
+def is_xp_channel_disabled(guild_id, channel_id):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM xp_disabled_channels WHERE guild_id = ? AND channel_id = ?", (guild_id, channel_id))
+    row = cursor.fetchone()
+    conn.close()
+    return row is not None
+
+
+def set_xp_channel_disabled(guild_id, channel_id, disabled):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    if disabled:
+        cursor.execute("INSERT OR IGNORE INTO xp_disabled_channels (guild_id, channel_id) VALUES (?, ?)", (guild_id, channel_id))
+    else:
+        cursor.execute("DELETE FROM xp_disabled_channels WHERE guild_id = ? AND channel_id = ?", (guild_id, channel_id))
+    conn.commit()
+    conn.close()
+
+
+def get_disabled_xp_channels(guild_id):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT channel_id FROM xp_disabled_channels WHERE guild_id = ? ORDER BY channel_id", (guild_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [row[0] for row in rows]
+
+
+async def update_xp_role(member, level):
+    role_to_add = None
+    for milestone in sorted(XP_ROLE_MILESTONES):
+        if level >= milestone:
+            role_to_add = member.guild.get_role(XP_ROLE_MILESTONES[milestone])
+    roles_to_remove = []
+    xp_role_ids = set(XP_ROLE_MILESTONES.values())
+    for role in member.roles:
+        if role.id in xp_role_ids and role != role_to_add:
+            roles_to_remove.append(role)
+    try:
+        if roles_to_remove:
+            await member.remove_roles(*roles_to_remove, reason="XP role update")
+        if role_to_add and role_to_add not in member.roles:
+            await member.add_roles(role_to_add, reason="XP role update")
+    except discord.DiscordException:
+        pass
+
+
+def xp_rank_name(level):
+    rank = None
+    for milestone in sorted(XP_ROLE_NAMES):
+        if level >= milestone:
+            rank = XP_ROLE_NAMES[milestone]
+    return rank
+
+
+async def handle_xp(message):
+    if not message.guild or not isinstance(message.author, discord.Member):
+        return
+    if message.content.startswith("!"):
+        return
+    if is_xp_channel_disabled(message.guild.id, message.channel.id):
+        return
+    key = (message.guild.id, message.author.id)
+    last_time = last_xp_times.get(key)
+    if last_time and now_utc() - last_time < XP_COOLDOWN:
+        return
+    xp, old_level = get_xp_data(message.guild.id, message.author.id)
+    if old_level >= MAX_LEVEL:
+        return
+    new_xp = xp + XP_GAIN
+    new_level = level_from_xp(new_xp)
+    if new_level > MAX_LEVEL:
+        new_level = MAX_LEVEL
+    set_xp_data(message.guild.id, message.author.id, new_xp, new_level)
+    last_xp_times[key] = now_utc()
+    if new_level > old_level:
+        await update_xp_role(message.author, new_level)
+        bot_channel = message.guild.get_channel(BOT_COMMANDS_CHANNEL_ID)
+        if bot_channel:
+            rank = xp_rank_name(new_level)
+            rank_text = f" and became **{rank}**" if rank else ""
+            await bot_channel.send(pick("levelup", user=message.author.mention, level=new_level) + rank_text)
 
 
 def parse_duration(duration_text):
@@ -553,6 +741,7 @@ async def on_message(message):
             pass
     if bot.user and bot.user in message.mentions and not message.content.strip().startswith("!"):
         await message.reply(random.choice(PHRASES["mention"]), mention_author=False)
+    await handle_xp(message)
     await bot.process_commands(message)
 
 
@@ -603,6 +792,66 @@ async def rate(ctx, *, target=None):
     number = random.randint(0, 100)
     rest = 100 - number
     await ctx.send(pick("rate", target=target, number=number, rest=rest))
+
+
+@bot.command()
+async def level(ctx, target_text: str = None):
+    target = ctx.author
+    if target_text:
+        found = await get_user_from_text(ctx.guild, target_text)
+        if not found:
+            await ctx.send("user not found. use a mention or valid user ID.")
+            return
+        target = found
+    xp, level_value = get_xp_data(ctx.guild.id, target.id)
+    progress, needed = xp_progress(xp, level_value)
+    rank = xp_rank_name(level_value)
+    rank_text = f" | rank: {rank}" if rank else ""
+    if level_value >= MAX_LEVEL:
+        await ctx.send(f"{target.mention} is level {level_value}{rank_text}. max level reached, bro finished the current season.")
+    else:
+        await ctx.send(f"{target.mention} is level {level_value}{rank_text}. XP: {progress}/{needed} until level {level_value + 1}.")
+
+
+@bot.command()
+async def leaderboard(ctx):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, xp, level FROM user_xp WHERE guild_id = ? ORDER BY level DESC, xp DESC LIMIT 10", (ctx.guild.id,))
+    rows = cursor.fetchall()
+    conn.close()
+    if not rows:
+        await ctx.send("leaderboard is empty. chat XP economy has not started yet.")
+        return
+    lines = []
+    for index, (user_id, xp, level_value) in enumerate(rows, start=1):
+        lines.append(f"{index}. <@{user_id}> — Level {level_value} | {xp} XP")
+    await ctx.send("**DECAY XP Leaderboard**\n" + "\n".join(lines))
+
+
+@bot.command()
+@setup_only()
+async def xpchanneloff(ctx):
+    set_xp_channel_disabled(ctx.guild.id, ctx.channel.id, True)
+    await ctx.send(f"XP disabled in {ctx.channel.mention}. no more chat farming here.")
+
+
+@bot.command()
+@setup_only()
+async def xpchannelon(ctx):
+    set_xp_channel_disabled(ctx.guild.id, ctx.channel.id, False)
+    await ctx.send(f"XP enabled in {ctx.channel.mention}. the grind economy is back.")
+
+
+@bot.command()
+@setup_only()
+async def xpexcluded(ctx):
+    channels = get_disabled_xp_channels(ctx.guild.id)
+    if not channels:
+        await ctx.send("no channels excluded. XP is active everywhere by default.")
+        return
+    mentions = [f"<#{channel_id}>" for channel_id in channels]
+    await ctx.send("XP is disabled in:\n" + "\n".join(mentions))
 
 
 @bot.command()
@@ -909,6 +1158,9 @@ async def removelog(ctx, log_id: int = None):
 @contributionsembed.error
 @ticketclose.error
 @ticketdelete.error
+@xpchanneloff.error
+@xpchannelon.error
+@xpexcluded.error
 async def command_error(ctx, error):
     if isinstance(error, commands.CheckFailure):
         await ctx.send(random.choice(PHRASES["noperms"]))
