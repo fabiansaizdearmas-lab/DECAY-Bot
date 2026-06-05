@@ -34,7 +34,6 @@ from config import (
     WELCOME_BANNER_URL,
     WELCOME_CHANNEL_ID,
     XP_COOLDOWN,
-    XP_GAIN,
     MAX_LEVEL,
 )
 from database import (
@@ -63,7 +62,7 @@ from embeds import (
     create_ticket_questions_embed,
     make_embed,
 )
-from phrases import PHRASES, pick, random_phrase
+from phrases import pick, random_phrase
 from utils import (
     format_remaining,
     get_user_from_text,
@@ -166,7 +165,7 @@ async def handle_xp(message):
         return
     if message.content.startswith("!"):
         return
-    if is_xp_channel_disabled(message.guild.id, message.channel.id):
+    if await is_xp_channel_disabled(message.guild.id, message.channel.id):
         return
 
     key = (message.guild.id, message.author.id)
@@ -174,12 +173,12 @@ async def handle_xp(message):
     if last_time and now_utc() - last_time < XP_COOLDOWN:
         return
 
-    xp, old_level = get_xp_data(message.guild.id, message.author.id)
+    xp, old_level = await get_xp_data(message.guild.id, message.author.id)
     if old_level >= MAX_LEVEL:
         return
 
     new_xp, new_level = calculate_new_xp(xp)
-    set_xp_data(message.guild.id, message.author.id, new_xp, new_level)
+    await set_xp_data(message.guild.id, message.author.id, new_xp, new_level)
     last_xp_times[key] = now_utc()
 
     if new_level > old_level:
@@ -192,14 +191,14 @@ async def handle_xp(message):
 
 
 async def send_modlog_message(send_func, guild, target):
-    rows = get_user_modlogs(guild.id, target.id, 10)
+    rows = await get_user_modlogs(guild.id, target.id, 10)
     if not rows:
         await send_func("no moderation history found for this user.")
         return
 
     embed = make_embed(f"Modlog for {target}", "Latest **10 moderation cases** for this user.")
     for log_id, action, duration, reason, moderator_id, created_at in rows:
-        date_text = created_at[:16].replace("T", " ") + " UTC"
+        date_text = created_at.strftime("%Y-%m-%d %H:%M UTC")
         embed.add_field(
             name=f"Case #{log_id} — {action}",
             value=f"**Date:** {date_text}\n**Moderator:** <@{moderator_id}>\n**Duration:** {duration or 'N/A'}\n**Reason:** {reason}",
@@ -209,7 +208,7 @@ async def send_modlog_message(send_func, guild, target):
 
 
 async def send_case_message(send_func, guild, case_id):
-    row = get_case(guild.id, case_id)
+    row = await get_case(guild.id, case_id)
     if not row:
         await send_func("case not found. check the case ID and try again.")
         return
@@ -225,7 +224,7 @@ async def send_case_message(send_func, guild, case_id):
 
 
 async def update_reason_message(send_func, guild, moderator, case_id, new_reason):
-    if not update_case_reason(guild.id, case_id, new_reason):
+    if not await update_case_reason(guild.id, case_id, new_reason):
         await send_func("case not found. check the case ID and try again.")
         return
     await send_func(embed=make_embed("Case Reason Updated", f"**Case ID:** `#{case_id}`\n**New reason:** {new_reason}"))
@@ -237,7 +236,7 @@ async def update_reason_message(send_func, guild, moderator, case_id, new_reason
 
 
 async def remove_log_message(send_func, guild, moderator, case_id):
-    if not delete_case(guild.id, case_id):
+    if not await delete_case(guild.id, case_id):
         await send_func("case not found. check the case ID and try again.")
         return
     await send_func(embed=make_embed("Case Removed", f"**Case ID:** `#{case_id}` has been deleted from the modlog."))
@@ -302,7 +301,7 @@ class GuildApplyView(discord.ui.View):
 
 @bot.event
 async def on_ready():
-    init_db()
+    await init_db()
     bot.add_view(GuildApplyView())
     if not check_temp_bans.is_running():
         check_temp_bans.start()
@@ -376,18 +375,18 @@ async def on_message(message):
 
 @tasks.loop(minutes=1)
 async def check_temp_bans():
-    for punishment_id, guild_id, user_id, expires_at_text in get_temp_bans():
-        if now_utc().fromisoformat(expires_at_text) <= now_utc():
+    for punishment_id, guild_id, user_id, expires_at in await get_temp_bans():
+        if expires_at <= now_utc():
             guild = bot.get_guild(guild_id)
             if guild:
                 try:
                     user = await bot.fetch_user(user_id)
                     await guild.unban(user, reason="Temporary ban expired")
-                    add_mod_log(guild_id, user_id, bot.user.id, "AUTO_UNBAN", None, "Temporary ban expired")
+                    await add_mod_log(guild_id, user_id, bot.user.id, "AUTO_UNBAN", None, "Temporary ban expired")
                     await send_log(guild, "Temporary Ban Expired", f"**User:** `{user}` (`{user.id}`)\n**Action:** Auto unban")
                 except discord.DiscordException:
                     pass
-            delete_tempban_by_id(punishment_id)
+            await delete_tempban_by_id(punishment_id)
 
 
 # Prefix commands
@@ -430,27 +429,27 @@ async def level(ctx, target_text: str = None):
 
 @bot.command()
 async def leaderboard(ctx):
-    await ctx.send(leaderboard_text(ctx.guild))
+    await ctx.send(await leaderboard_text(ctx.guild))
 
 
 @bot.command()
 @setup_only()
 async def xpchanneloff(ctx):
-    set_xp_channel_disabled(ctx.guild.id, ctx.channel.id, True)
+    await set_xp_channel_disabled(ctx.guild.id, ctx.channel.id, True)
     await ctx.send(f"XP disabled in {ctx.channel.mention}. no more chat farming here.")
 
 
 @bot.command()
 @setup_only()
 async def xpchannelon(ctx):
-    set_xp_channel_disabled(ctx.guild.id, ctx.channel.id, False)
+    await set_xp_channel_disabled(ctx.guild.id, ctx.channel.id, False)
     await ctx.send(f"XP enabled in {ctx.channel.mention}. the grind economy is back.")
 
 
 @bot.command()
 @setup_only()
 async def xpexcluded(ctx):
-    channels = get_disabled_xp_channels(ctx.guild.id)
+    channels = await get_disabled_xp_channels(ctx.guild.id)
     if not channels:
         await ctx.send("no channels excluded. XP is active everywhere by default.")
         return
@@ -538,7 +537,7 @@ async def timeout(ctx, target_text: str = None, duration_text: str = None, *, re
         await ctx.send(error)
         return
     await target.timeout(now_utc() + duration, reason=reason or f"Timed out by {ctx.author}")
-    log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "TIMEOUT", duration_text, reason)
+    log_id = await add_mod_log(ctx.guild.id, target.id, ctx.author.id, "TIMEOUT", duration_text, reason)
     await ctx.send(f"{pick('timeout', user=target.mention, duration=duration_text)} case `#{log_id}`.")
     await log_mod_action(ctx.guild, "Moderation: Timeout", target, ctx.author, reason, log_id, duration_text)
 
@@ -558,7 +557,7 @@ async def untimeout(ctx, target_text: str = None, *, reason=None):
         await ctx.send(error)
         return
     await target.timeout(None, reason=reason or f"Timeout removed by {ctx.author}")
-    log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "UNTIMEOUT", None, reason)
+    log_id = await add_mod_log(ctx.guild.id, target.id, ctx.author.id, "UNTIMEOUT", None, reason)
     await ctx.send(f"{pick('untimeout', user=target.mention)} case `#{log_id}`.")
     await log_mod_action(ctx.guild, "Moderation: Untimeout", target, ctx.author, reason, log_id)
 
@@ -580,7 +579,7 @@ async def kick(ctx, target_text: str = None, *, reason=None):
         await ctx.send(error)
         return
     await target.kick(reason=reason or f"Kicked by {ctx.author}")
-    log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "KICK", None, reason)
+    log_id = await add_mod_log(ctx.guild.id, target.id, ctx.author.id, "KICK", None, reason)
     await ctx.send(f"{pick('kick', user=f'`{target}`')} case `#{log_id}`.")
     await log_mod_action(ctx.guild, "Moderation: Kick", target, ctx.author, reason, log_id)
 
@@ -607,12 +606,12 @@ async def ban(ctx, target_text: str = None, duration_text: str = None, *, reason
         return
     await ctx.guild.ban(target, reason=reason or f"Banned by {ctx.author}")
     if duration:
-        add_active_tempban(ctx.guild.id, target.id, now_utc() + duration)
-        log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "TEMP_BAN", duration_text, reason)
+        await add_active_tempban(ctx.guild.id, target.id, now_utc() + duration)
+        log_id = await add_mod_log(ctx.guild.id, target.id, ctx.author.id, "TEMP_BAN", duration_text, reason)
         await ctx.send(f"{pick('tempban', user=f'`{target}`', duration=duration_text)} case `#{log_id}`.")
         await log_mod_action(ctx.guild, "Moderation: Temporary Ban", target, ctx.author, reason, log_id, duration_text)
     else:
-        log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "PERMA_BAN", None, reason)
+        log_id = await add_mod_log(ctx.guild.id, target.id, ctx.author.id, "PERMA_BAN", None, reason)
         await ctx.send(f"{pick('permban', user=f'`{target}`')} case `#{log_id}`.")
         await log_mod_action(ctx.guild, "Moderation: Permanent Ban", target, ctx.author, reason, log_id)
 
@@ -632,8 +631,8 @@ async def unban(ctx, target_text: str = None, *, reason=None):
     except discord.NotFound:
         await ctx.send("that user is not banned in this server.")
         return
-    remove_active_tempban(ctx.guild.id, target.id)
-    log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "UNBAN", None, reason)
+    await remove_active_tempban(ctx.guild.id, target.id)
+    log_id = await add_mod_log(ctx.guild.id, target.id, ctx.author.id, "UNBAN", None, reason)
     await ctx.send(f"{pick('unban', user=f'`{target}`')} case `#{log_id}`.")
     await log_mod_action(ctx.guild, "Moderation: Unban", target, ctx.author, reason, log_id)
 
@@ -724,7 +723,7 @@ async def slash_xp_level(interaction: discord.Interaction, user: discord.Member 
 
 @xp_group.command(name="leaderboard", description="Show the DECAY XP leaderboard")
 async def slash_xp_leaderboard(interaction: discord.Interaction):
-    await interaction.response.send_message(leaderboard_text(interaction.guild))
+    await interaction.response.send_message(await leaderboard_text(interaction.guild))
 
 
 @xp_group.command(name="channel_off", description="Disable XP in this channel")
@@ -732,7 +731,7 @@ async def slash_xp_channel_off(interaction: discord.Interaction):
     if not interaction_has_any_role(interaction, [OBLIVION_ROLE_ID]):
         await interaction.response.send_message(random_phrase("noperms"), ephemeral=True)
         return
-    set_xp_channel_disabled(interaction.guild.id, interaction.channel.id, True)
+    await set_xp_channel_disabled(interaction.guild.id, interaction.channel.id, True)
     await interaction.response.send_message(f"XP disabled in {interaction.channel.mention}. no more chat farming here.")
 
 
@@ -741,7 +740,7 @@ async def slash_xp_channel_on(interaction: discord.Interaction):
     if not interaction_has_any_role(interaction, [OBLIVION_ROLE_ID]):
         await interaction.response.send_message(random_phrase("noperms"), ephemeral=True)
         return
-    set_xp_channel_disabled(interaction.guild.id, interaction.channel.id, False)
+    await set_xp_channel_disabled(interaction.guild.id, interaction.channel.id, False)
     await interaction.response.send_message(f"XP enabled in {interaction.channel.mention}. the grind economy is back.")
 
 
@@ -750,7 +749,7 @@ async def slash_xp_excluded(interaction: discord.Interaction):
     if not interaction_has_any_role(interaction, [OBLIVION_ROLE_ID]):
         await interaction.response.send_message(random_phrase("noperms"), ephemeral=True)
         return
-    channels = get_disabled_xp_channels(interaction.guild.id)
+    channels = await get_disabled_xp_channels(interaction.guild.id)
     if not channels:
         await interaction.response.send_message("no channels excluded. XP is active everywhere by default.")
         return
@@ -848,7 +847,7 @@ async def slash_mod_timeout(interaction: discord.Interaction, user: discord.Memb
         await interaction.response.send_message(error, ephemeral=True)
         return
     await user.timeout(now_utc() + parsed_duration, reason=reason or f"Timed out by {interaction.user}")
-    log_id = add_mod_log(interaction.guild.id, user.id, interaction.user.id, "TIMEOUT", duration, reason)
+    log_id = await add_mod_log(interaction.guild.id, user.id, interaction.user.id, "TIMEOUT", duration, reason)
     await interaction.response.send_message(f"{pick('timeout', user=user.mention, duration=duration)} case `#{log_id}`.")
     await log_mod_action(interaction.guild, "Moderation: Timeout", user, interaction.user, reason, log_id, duration)
 
@@ -864,7 +863,7 @@ async def slash_mod_untimeout(interaction: discord.Interaction, user: discord.Me
         await interaction.response.send_message(error, ephemeral=True)
         return
     await user.timeout(None, reason=reason or f"Timeout removed by {interaction.user}")
-    log_id = add_mod_log(interaction.guild.id, user.id, interaction.user.id, "UNTIMEOUT", None, reason)
+    log_id = await add_mod_log(interaction.guild.id, user.id, interaction.user.id, "UNTIMEOUT", None, reason)
     await interaction.response.send_message(f"{pick('untimeout', user=user.mention)} case `#{log_id}`.")
     await log_mod_action(interaction.guild, "Moderation: Untimeout", user, interaction.user, reason, log_id)
 
@@ -897,7 +896,7 @@ async def slash_mod_kick(interaction: discord.Interaction, user: discord.Member,
         await interaction.response.send_message(error, ephemeral=True)
         return
     await user.kick(reason=reason or f"Kicked by {interaction.user}")
-    log_id = add_mod_log(interaction.guild.id, user.id, interaction.user.id, "KICK", None, reason)
+    log_id = await add_mod_log(interaction.guild.id, user.id, interaction.user.id, "KICK", None, reason)
     await interaction.response.send_message(f"{pick('kick', user=f'`{user}`')} case `#{log_id}`.")
     await log_mod_action(interaction.guild, "Moderation: Kick", user, interaction.user, reason, log_id)
 
@@ -921,12 +920,12 @@ async def slash_mod_ban(interaction: discord.Interaction, user: discord.User, du
         return
     await interaction.guild.ban(user, reason=reason or f"Banned by {interaction.user}")
     if parsed_duration:
-        add_active_tempban(interaction.guild.id, user.id, now_utc() + parsed_duration)
-        log_id = add_mod_log(interaction.guild.id, user.id, interaction.user.id, "TEMP_BAN", duration, reason)
+        await add_active_tempban(interaction.guild.id, user.id, now_utc() + parsed_duration)
+        log_id = await add_mod_log(interaction.guild.id, user.id, interaction.user.id, "TEMP_BAN", duration, reason)
         await interaction.response.send_message(f"{pick('tempban', user=f'`{user}`', duration=duration)} case `#{log_id}`.")
         await log_mod_action(interaction.guild, "Moderation: Temporary Ban", user, interaction.user, reason, log_id, duration)
     else:
-        log_id = add_mod_log(interaction.guild.id, user.id, interaction.user.id, "PERMA_BAN", None, reason)
+        log_id = await add_mod_log(interaction.guild.id, user.id, interaction.user.id, "PERMA_BAN", None, reason)
         await interaction.response.send_message(f"{pick('permban', user=f'`{user}`')} case `#{log_id}`.")
         await log_mod_action(interaction.guild, "Moderation: Permanent Ban", user, interaction.user, reason, log_id)
 
@@ -946,8 +945,8 @@ async def slash_mod_unban(interaction: discord.Interaction, user_id: str, reason
     except discord.NotFound:
         await interaction.response.send_message("that user is not banned in this server.", ephemeral=True)
         return
-    remove_active_tempban(interaction.guild.id, user.id)
-    log_id = add_mod_log(interaction.guild.id, user.id, interaction.user.id, "UNBAN", None, reason)
+    await remove_active_tempban(interaction.guild.id, user.id)
+    log_id = await add_mod_log(interaction.guild.id, user.id, interaction.user.id, "UNBAN", None, reason)
     await interaction.response.send_message(f"{pick('unban', user=f'`{user}`')} case `#{log_id}`.")
     await log_mod_action(interaction.guild, "Moderation: Unban", user, interaction.user, reason, log_id)
 
