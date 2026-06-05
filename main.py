@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 DB_PATH = "modlogs_v2.db"
 DECAY_RED = 0xB30000
 
+# Staff / Guild role IDs
 OBLIVION_ROLE_ID = 1509264947006279700
 ENTROPY_ROLE_ID = 1509335654537105428
 RUIN_ROLE_ID = 1509333457703141426
@@ -17,12 +18,14 @@ FRACTURE_ROLE_ID = 1509333436551401673
 WITHER_ROLE_ID = 1509335734866411560
 GUILD_CAPTAIN_ROLE_ID = 1509302357631041716
 
+# XP role IDs
 ASH_ROLE_ID = 1512584016740618291
 EMBER_ROLE_ID = 1512584027708854423
 SCORCH_ROLE_ID = 1512584031685050389
 RUPTURE_ROLE_ID = 1512584036336533686
 COLLAPSE_ROLE_ID = 1512584037695488110
 CATACLYSM_ROLE_ID = 1512584039041728732
+
 XP_ROLE_MILESTONES = {
     5: ASH_ROLE_ID,
     10: EMBER_ROLE_ID,
@@ -40,6 +43,7 @@ XP_ROLE_NAMES = {
     30: "Cataclysm",
 }
 
+# Channel IDs
 WELCOME_CHANNEL_ID = 1509285951816335411
 GENERAL_CHANNEL_ID = 1509272809791029349
 BOT_COMMANDS_CHANNEL_ID = 1509272900732059809
@@ -52,6 +56,7 @@ LOG_CHANNEL_ID = 1509323362344898652
 
 WELCOME_BANNER_URL = "https://raw.githubusercontent.com/fabiansaizdearmas-lab/DECAY-Bot/main/DECAYBanner.png"
 DECAY_LOGO_URL = "https://raw.githubusercontent.com/fabiansaizdearmas-lab/DECAY-Bot/main/DECAYLogo.png"
+
 STAFF_ROLE_IDS = [OBLIVION_ROLE_ID, ENTROPY_ROLE_ID, RUIN_ROLE_ID, FRACTURE_ROLE_ID, WITHER_ROLE_ID]
 TICKET_STAFF_ROLE_IDS = STAFF_ROLE_IDS + [GUILD_CAPTAIN_ROLE_ID]
 FULL_STAFF_ROLE_IDS = [OBLIVION_ROLE_ID, ENTROPY_ROLE_ID, RUIN_ROLE_ID, FRACTURE_ROLE_ID]
@@ -62,6 +67,7 @@ ABUSE_WINDOW = timedelta(hours=6)
 XP_GAIN = 10
 XP_COOLDOWN = timedelta(seconds=60)
 MAX_LEVEL = 30
+
 mod_action_history = {}
 last_xp_times = {}
 
@@ -70,7 +76,12 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.slash_synced = False
+
+fun_group = app_commands.Group(name="fun", description="Fun commands")
 xp_group = app_commands.Group(name="xp", description="XP system commands")
+setup_group = app_commands.Group(name="setup", description="Setup embeds")
+ticket_group = app_commands.Group(name="ticket", description="Ticket commands")
+mod_group = app_commands.Group(name="mod", description="Moderation commands")
 
 PHRASES = {
     "timeout": [
@@ -220,52 +231,40 @@ def make_embed(title, description, color=DECAY_RED):
 def create_commands_embed():
     embed = make_embed(
         "DECAY Bot Commands",
-        "Quick command list. Slash versions are available for fun and XP commands."
+        "Quick command list. Slash commands are organized by `/fun`, `/xp`, `/setup`, `/ticket`, and `/mod`."
     )
     embed.set_thumbnail(url=DECAY_LOGO_URL)
     embed.add_field(
         name="General / Fun",
-        value="`!ping`\n`!commands`\n`!8ball question` / `/8ball`\n`!rate target` / `/rate`",
+        value="`!ping`\n`!commands` / `/commands`\n`!8ball question` / `/fun 8ball`\n`!rate target` / `/fun rate`",
         inline=False,
     )
     embed.add_field(
         name="XP",
-        value="`!level` / `/level`\n`!level @user` / `/level user`\n`!leaderboard` / `/leaderboard`\n`!xpchanneloff` / `/xp channel_off`\n`!xpchannelon` / `/xp channel_on`\n`!xpexcluded` / `/xp excluded`",
+        value="`!level` / `/xp level`\n`!level @user` / `/xp level user`\n`!leaderboard` / `/xp leaderboard`\n`!xpchanneloff` / `/xp channel_off`\n`!xpchannelon` / `/xp channel_on`\n`!xpexcluded` / `/xp excluded`",
         inline=False,
     )
     embed.add_field(
         name="Setup",
-        value="`!guildapplysetup`\n`!rulesembed`\n`!suggestionsembed`\n`!contributionsembed`",
+        value="`!guildapplysetup` / `/setup apply`\n`!rulesembed` / `/setup rules`\n`!suggestionsembed` / `/setup suggestions`\n`!contributionsembed` / `/setup contributions`",
         inline=False,
     )
     embed.add_field(
         name="Tickets",
-        value="`!ticketclose`\n`!ticketdelete`",
+        value="`!ticketclose` / `/ticket close`\n`!ticketdelete` / `/ticket delete`",
         inline=False,
     )
     embed.add_field(
         name="Moderation",
-        value="`!timeout @user 1h reason`\n`!untimeout @user reason`\n`!clear amount`\n`!kick @user reason`\n`!ban @user reason`\n`!ban @user 7d reason`\n`!unban userID reason`",
+        value="`!timeout @user 1h reason` / `/mod timeout`\n`!untimeout @user reason` / `/mod untimeout`\n`!clear amount` / `/mod clear`\n`!kick @user reason` / `/mod kick`\n`!ban @user reason` / `/mod ban`\n`!ban @user 7d reason` / `/mod ban`\n`!unban userID reason` / `/mod unban`",
         inline=False,
     )
     embed.add_field(
         name="Modlogs",
-        value="`!modlog @user`\n`!case caseID`\n`!reason caseID new reason`\n`!removelog caseID`",
+        value="`!modlog @user` / `/mod modlog`\n`!case caseID` / `/mod case`\n`!reason caseID new reason` / `/mod reason`\n`!removelog caseID` / `/mod removelog`",
         inline=False,
     )
     return embed
-
-
-async def send_log(guild, title, description, color=DECAY_RED):
-    channel = guild.get_channel(LOG_CHANNEL_ID)
-    if not channel:
-        return
-    embed = make_embed(title, description, color)
-    embed.timestamp = now_utc()
-    try:
-        await channel.send(embed=embed)
-    except discord.DiscordException:
-        pass
 
 
 def has_any_role(member, role_ids):
@@ -380,10 +379,7 @@ def xp_needed_for_level(level):
 
 
 def total_xp_for_level(level):
-    total = 0
-    for current_level in range(1, level + 1):
-        total += xp_needed_for_level(current_level)
-    return total
+    return sum(xp_needed_for_level(current_level) for current_level in range(1, level + 1))
 
 
 def level_from_xp(xp):
@@ -398,8 +394,7 @@ def xp_progress(xp, level):
         return 0, 0
     current_floor = total_xp_for_level(level)
     next_needed = xp_needed_for_level(level + 1)
-    progress = max(0, xp - current_floor)
-    return progress, next_needed
+    return max(0, xp - current_floor), next_needed
 
 
 def get_xp_data(guild_id, user_id):
@@ -461,11 +456,8 @@ async def update_xp_role(member, level):
     for milestone in sorted(XP_ROLE_MILESTONES):
         if level >= milestone:
             role_to_add = member.guild.get_role(XP_ROLE_MILESTONES[milestone])
-    roles_to_remove = []
     xp_role_ids = set(XP_ROLE_MILESTONES.values())
-    for role in member.roles:
-        if role.id in xp_role_ids and role != role_to_add:
-            roles_to_remove.append(role)
+    roles_to_remove = [role for role in member.roles if role.id in xp_role_ids and role != role_to_add]
     try:
         if roles_to_remove:
             await member.remove_roles(*roles_to_remove, reason="XP role update")
@@ -483,6 +475,18 @@ def xp_rank_name(level):
     return rank
 
 
+async def send_log(guild, title, description, color=DECAY_RED):
+    channel = guild.get_channel(LOG_CHANNEL_ID)
+    if not channel:
+        return
+    embed = make_embed(title, description, color)
+    embed.timestamp = now_utc()
+    try:
+        await channel.send(embed=embed)
+    except discord.DiscordException:
+        pass
+
+
 async def handle_xp(message):
     if not message.guild or not isinstance(message.author, discord.Member):
         return
@@ -498,9 +502,7 @@ async def handle_xp(message):
     if old_level >= MAX_LEVEL:
         return
     new_xp = xp + XP_GAIN
-    new_level = level_from_xp(new_xp)
-    if new_level > MAX_LEVEL:
-        new_level = MAX_LEVEL
+    new_level = min(level_from_xp(new_xp), MAX_LEVEL)
     set_xp_data(message.guild.id, message.author.id, new_xp, new_level)
     last_xp_times[key] = now_utc()
     if new_level > old_level:
@@ -533,21 +535,13 @@ def format_remaining(delta):
     return f"{minutes or 1}m"
 
 
-async def check_abuse_limit(ctx, action):
-    if is_oblivion(ctx.author):
-        return True
-    key = (ctx.guild.id, ctx.author.id, action)
-    cutoff = now_utc() - ABUSE_WINDOW
-    timestamps = [t for t in mod_action_history.get(key, []) if t > cutoff]
-    if len(timestamps) >= ABUSE_LIMIT:
-        remaining = ABUSE_WINDOW - (now_utc() - min(timestamps))
-        text = pick("cooldown", time=format_remaining(remaining), action=action)
-        await ctx.send(text)
-        await send_log(ctx.guild, "Safety Limit Triggered", f"**Staff:** {ctx.author.mention}\n**Action:** `{action}`\n**Limit:** `{ABUSE_LIMIT}` per 6h\n**Remaining:** `{format_remaining(remaining)}`", discord.Color.orange())
-        return False
-    timestamps.append(now_utc())
-    mod_action_history[key] = timestamps
-    return True
+def target_name(target):
+    return target.mention if isinstance(target, discord.Member) else f"`{target}`"
+
+
+def safe_channel_name(text):
+    text = re.sub(r"[^a-z0-9-]", "-", text.lower())
+    return re.sub(r"-+", "-", text).strip("-")[:40] or "user"
 
 
 async def get_user_from_text(guild, target_text):
@@ -566,15 +560,6 @@ async def get_user_from_text(guild, target_text):
         return None
 
 
-def target_name(target):
-    return target.mention if isinstance(target, discord.Member) else f"`{target}`"
-
-
-def safe_channel_name(text):
-    text = re.sub(r"[^a-z0-9-]", "-", text.lower())
-    return re.sub(r"-+", "-", text).strip("-")[:40] or "user"
-
-
 def can_punish(ctx, target):
     if not isinstance(target, discord.Member):
         return True, None
@@ -587,6 +572,80 @@ def can_punish(ctx, target):
     if ctx.guild.me.top_role <= target.top_role:
         return False, "my role is too low to touch that user. give me more aura first."
     return True, None
+
+
+def can_punish_slash(interaction, target):
+    if not isinstance(target, discord.Member):
+        return True, None
+    actor = interaction.user
+    if target.id == actor.id:
+        return False, "you tried to moderate yourself. bro is fighting ghosts."
+    if target.id == interaction.guild.owner_id:
+        return False, "nice try, but the server owner has plot armor."
+    if actor.id != interaction.guild.owner_id and actor.top_role <= target.top_role:
+        return False, "target has equal or higher role. the food chain said no."
+    if interaction.guild.me.top_role <= target.top_role:
+        return False, "my role is too low to touch that user. give me more aura first."
+    return True, None
+
+
+async def check_abuse_limit(ctx, action):
+    if is_oblivion(ctx.author):
+        return True
+    key = (ctx.guild.id, ctx.author.id, action)
+    cutoff = now_utc() - ABUSE_WINDOW
+    timestamps = [t for t in mod_action_history.get(key, []) if t > cutoff]
+    if len(timestamps) >= ABUSE_LIMIT:
+        remaining = ABUSE_WINDOW - (now_utc() - min(timestamps))
+        await ctx.send(pick("cooldown", time=format_remaining(remaining), action=action))
+        await send_log(ctx.guild, "Safety Limit Triggered", f"**Staff:** {ctx.author.mention}\n**Action:** `{action}`\n**Limit:** `{ABUSE_LIMIT}` per 6h\n**Remaining:** `{format_remaining(remaining)}`", discord.Color.orange())
+        return False
+    timestamps.append(now_utc())
+    mod_action_history[key] = timestamps
+    return True
+
+
+async def check_abuse_limit_slash(interaction, action):
+    if is_oblivion(interaction.user):
+        return True
+    key = (interaction.guild.id, interaction.user.id, action)
+    cutoff = now_utc() - ABUSE_WINDOW
+    timestamps = [t for t in mod_action_history.get(key, []) if t > cutoff]
+    if len(timestamps) >= ABUSE_LIMIT:
+        remaining = ABUSE_WINDOW - (now_utc() - min(timestamps))
+        await interaction.response.send_message(pick("cooldown", time=format_remaining(remaining), action=action), ephemeral=True)
+        await send_log(interaction.guild, "Safety Limit Triggered", f"**Staff:** {interaction.user.mention}\n**Action:** `{action}`\n**Limit:** `{ABUSE_LIMIT}` per 6h\n**Remaining:** `{format_remaining(remaining)}`", discord.Color.orange())
+        return False
+    timestamps.append(now_utc())
+    mod_action_history[key] = timestamps
+    return True
+
+
+async def log_mod_action(guild, title, target, moderator, reason, log_id, duration=None):
+    duration_line = f"**Duration:** `{duration}`\n" if duration else ""
+    await send_log(guild, title, f"**User:** {target_name(target)} (`{target.id}`)\n{duration_line}**Moderator:** {moderator.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`")
+
+
+async def level_text(guild, target):
+    xp, level_value = get_xp_data(guild.id, target.id)
+    progress, needed = xp_progress(xp, level_value)
+    rank = xp_rank_name(level_value)
+    rank_text = f" | rank: {rank}" if rank else ""
+    if level_value >= MAX_LEVEL:
+        return f"{target.mention} is level {level_value}{rank_text}. max level reached, bro finished the current season."
+    return f"{target.mention} is level {level_value}{rank_text}. XP: {progress}/{needed} until level {level_value + 1}."
+
+
+def leaderboard_text(guild):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, xp, level FROM user_xp WHERE guild_id = ? ORDER BY level DESC, xp DESC LIMIT 10", (guild.id,))
+    rows = cursor.fetchall()
+    conn.close()
+    if not rows:
+        return "leaderboard is empty. chat XP economy has not started yet."
+    lines = [f"{index}. <@{user_id}> — Level {level_value} | {xp} XP" for index, (user_id, xp, level_value) in enumerate(rows, start=1)]
+    return "**DECAY XP Leaderboard**\n" + "\n".join(lines)
 
 
 def create_apply_embed():
@@ -821,35 +880,7 @@ async def check_temp_bans():
     conn.close()
 
 
-async def log_mod_action(ctx, title, target, reason, log_id, duration=None):
-    duration_line = f"**Duration:** `{duration}`\n" if duration else ""
-    await send_log(ctx.guild, title, f"**User:** {target_name(target)} (`{target.id}`)\n{duration_line}**Moderator:** {ctx.author.mention}\n**Reason:** {reason or 'No reason provided'}\n**Case ID:** `#{log_id}`")
-
-
-async def level_text(guild, target):
-    xp, level_value = get_xp_data(guild.id, target.id)
-    progress, needed = xp_progress(xp, level_value)
-    rank = xp_rank_name(level_value)
-    rank_text = f" | rank: {rank}" if rank else ""
-    if level_value >= MAX_LEVEL:
-        return f"{target.mention} is level {level_value}{rank_text}. max level reached, bro finished the current season."
-    return f"{target.mention} is level {level_value}{rank_text}. XP: {progress}/{needed} until level {level_value + 1}."
-
-
-def leaderboard_text(guild):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_id, xp, level FROM user_xp WHERE guild_id = ? ORDER BY level DESC, xp DESC LIMIT 10", (guild.id,))
-    rows = cursor.fetchall()
-    conn.close()
-    if not rows:
-        return "leaderboard is empty. chat XP economy has not started yet."
-    lines = []
-    for index, (user_id, xp, level_value) in enumerate(rows, start=1):
-        lines.append(f"{index}. <@{user_id}> — Level {level_value} | {xp} XP")
-    return "**DECAY XP Leaderboard**\n" + "\n".join(lines)
-
-
+# Prefix commands
 @bot.command()
 async def ping(ctx):
     await ctx.send("Pong 🏓")
@@ -873,8 +904,7 @@ async def rate(ctx, *, target=None):
     if not target:
         target = ctx.author.mention
     number = random.randint(0, 100)
-    rest = 100 - number
-    await ctx.send(pick("rate", target=target, number=number, rest=rest))
+    await ctx.send(pick("rate", target=target, number=number, rest=100 - number))
 
 
 @bot.command()
@@ -915,8 +945,7 @@ async def xpexcluded(ctx):
     if not channels:
         await ctx.send("no channels excluded. XP is active everywhere by default.")
         return
-    mentions = [f"<#{channel_id}>" for channel_id in channels]
-    await ctx.send("XP is disabled in:\n" + "\n".join(mentions))
+    await ctx.send("XP is disabled in:\n" + "\n".join(f"<#{channel_id}>" for channel_id in channels))
 
 
 @bot.command()
@@ -1002,7 +1031,7 @@ async def timeout(ctx, target_text: str = None, duration_text: str = None, *, re
     await target.timeout(now_utc() + duration, reason=reason or f"Timed out by {ctx.author}")
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "TIMEOUT", duration_text, reason)
     await ctx.send(f"{pick('timeout', user=target.mention, duration=duration_text)} case `#{log_id}`.")
-    await log_mod_action(ctx, "Moderation: Timeout", target, reason, log_id, duration_text)
+    await log_mod_action(ctx.guild, "Moderation: Timeout", target, ctx.author, reason, log_id, duration_text)
 
 
 @bot.command()
@@ -1022,7 +1051,7 @@ async def untimeout(ctx, target_text: str = None, *, reason=None):
     await target.timeout(None, reason=reason or f"Timeout removed by {ctx.author}")
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "UNTIMEOUT", None, reason)
     await ctx.send(f"{pick('untimeout', user=target.mention)} case `#{log_id}`.")
-    await log_mod_action(ctx, "Moderation: Untimeout", target, reason, log_id)
+    await log_mod_action(ctx.guild, "Moderation: Untimeout", target, ctx.author, reason, log_id)
 
 
 @bot.command()
@@ -1044,7 +1073,7 @@ async def kick(ctx, target_text: str = None, *, reason=None):
     await target.kick(reason=reason or f"Kicked by {ctx.author}")
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "KICK", None, reason)
     await ctx.send(f"{pick('kick', user=f'`{target}`')} case `#{log_id}`.")
-    await log_mod_action(ctx, "Moderation: Kick", target, reason, log_id)
+    await log_mod_action(ctx.guild, "Moderation: Kick", target, ctx.author, reason, log_id)
 
 
 @bot.command()
@@ -1072,11 +1101,11 @@ async def ban(ctx, target_text: str = None, duration_text: str = None, *, reason
         add_active_tempban(ctx.guild.id, target.id, now_utc() + duration)
         log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "TEMP_BAN", duration_text, reason)
         await ctx.send(f"{pick('tempban', user=f'`{target}`', duration=duration_text)} case `#{log_id}`.")
-        await log_mod_action(ctx, "Moderation: Temporary Ban", target, reason, log_id, duration_text)
+        await log_mod_action(ctx.guild, "Moderation: Temporary Ban", target, ctx.author, reason, log_id, duration_text)
     else:
         log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "PERMA_BAN", None, reason)
         await ctx.send(f"{pick('permban', user=f'`{target}`')} case `#{log_id}`.")
-        await log_mod_action(ctx, "Moderation: Permanent Ban", target, reason, log_id)
+        await log_mod_action(ctx.guild, "Moderation: Permanent Ban", target, ctx.author, reason, log_id)
 
 
 @bot.command()
@@ -1097,7 +1126,7 @@ async def unban(ctx, target_text: str = None, *, reason=None):
     remove_active_tempban(ctx.guild.id, target.id)
     log_id = add_mod_log(ctx.guild.id, target.id, ctx.author.id, "UNBAN", None, reason)
     await ctx.send(f"{pick('unban', user=f'`{target}`')} case `#{log_id}`.")
-    await log_mod_action(ctx, "Moderation: Unban", target, reason, log_id)
+    await log_mod_action(ctx.guild, "Moderation: Unban", target, ctx.author, reason, log_id)
 
 
 @bot.command()
@@ -1128,6 +1157,10 @@ async def modlog(ctx, target_text: str = None):
     if not target:
         await ctx.send("user not found. use a mention or valid user ID.")
         return
+    await send_modlog(ctx, target)
+
+
+async def send_modlog(ctx, target):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id, action, duration, reason, moderator_id, created_at FROM mod_logs WHERE guild_id = ? AND user_id = ? ORDER BY id DESC LIMIT 10", (ctx.guild.id, target.id))
@@ -1149,6 +1182,10 @@ async def view_case(ctx, log_id: int = None):
     if log_id is None:
         await ctx.send("Usage: `!case 12`")
         return
+    await send_case_embed(ctx, log_id)
+
+
+async def send_case_embed(ctx, log_id):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT user_id, moderator_id, action, duration, reason, created_at FROM mod_logs WHERE guild_id = ? AND id = ?", (ctx.guild.id, log_id))
@@ -1173,6 +1210,10 @@ async def reason(ctx, log_id: int = None, *, new_reason=None):
     if log_id is None or not new_reason:
         await ctx.send("Usage: `!reason caseID new reason`")
         return
+    await update_reason_common(ctx, log_id, new_reason)
+
+
+async def update_reason_common(ctx, log_id, new_reason):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM mod_logs WHERE guild_id = ? AND id = ?", (ctx.guild.id, log_id))
@@ -1193,6 +1234,10 @@ async def removelog(ctx, log_id: int = None):
     if log_id is None:
         await ctx.send("Usage: `!removelog 12`")
         return
+    await remove_log_common(ctx, log_id)
+
+
+async def remove_log_common(ctx, log_id):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM mod_logs WHERE guild_id = ? AND id = ?", (ctx.guild.id, log_id))
@@ -1207,36 +1252,34 @@ async def removelog(ctx, log_id: int = None):
     await send_log(ctx.guild, "Moderation: Case Removed", f"**Moderator:** {ctx.author.mention}\n**Removed Case ID:** `#{log_id}`")
 
 
+# Slash commands
 @app_commands.command(name="commands", description="Show all DECAY bot commands")
 async def slash_commands(interaction: discord.Interaction):
     await interaction.response.send_message(embed=create_commands_embed())
 
 
-@app_commands.command(name="8ball", description="Ask the DECAY 8ball a question")
+@fun_group.command(name="8ball", description="Ask the DECAY 8ball a question")
 @app_commands.describe(question="Question to ask")
-async def slash_8ball(interaction: discord.Interaction, question: str):
+async def slash_fun_8ball(interaction: discord.Interaction, question: str):
     await interaction.response.send_message(random.choice(PHRASES["8ball"]))
 
 
-@app_commands.command(name="rate", description="Rate anything or anyone")
+@fun_group.command(name="rate", description="Rate anything or anyone")
 @app_commands.describe(target="Target to rate")
-async def slash_rate(interaction: discord.Interaction, target: str = None):
-    if not target:
-        target = interaction.user.mention
+async def slash_fun_rate(interaction: discord.Interaction, target: str = None):
+    target = target or interaction.user.mention
     number = random.randint(0, 100)
-    rest = 100 - number
-    await interaction.response.send_message(pick("rate", target=target, number=number, rest=rest))
+    await interaction.response.send_message(pick("rate", target=target, number=number, rest=100 - number))
 
 
-@app_commands.command(name="level", description="Show your level or another member's level")
+@xp_group.command(name="level", description="Show your level or another member's level")
 @app_commands.describe(user="Member to check")
-async def slash_level(interaction: discord.Interaction, user: discord.Member = None):
-    target = user or interaction.user
-    await interaction.response.send_message(await level_text(interaction.guild, target))
+async def slash_xp_level(interaction: discord.Interaction, user: discord.Member = None):
+    await interaction.response.send_message(await level_text(interaction.guild, user or interaction.user))
 
 
-@app_commands.command(name="leaderboard", description="Show the DECAY XP leaderboard")
-async def slash_leaderboard(interaction: discord.Interaction):
+@xp_group.command(name="leaderboard", description="Show the DECAY XP leaderboard")
+async def slash_xp_leaderboard(interaction: discord.Interaction):
     await interaction.response.send_message(leaderboard_text(interaction.guild))
 
 
@@ -1267,16 +1310,295 @@ async def slash_xp_excluded(interaction: discord.Interaction):
     if not channels:
         await interaction.response.send_message("no channels excluded. XP is active everywhere by default.")
         return
-    mentions = [f"<#{channel_id}>" for channel_id in channels]
-    await interaction.response.send_message("XP is disabled in:\n" + "\n".join(mentions))
+    await interaction.response.send_message("XP is disabled in:\n" + "\n".join(f"<#{channel_id}>" for channel_id in channels))
+
+
+@setup_group.command(name="apply", description="Send the Apply for DECAY embed")
+async def slash_setup_apply(interaction: discord.Interaction):
+    if not interaction_has_any_role(interaction, [OBLIVION_ROLE_ID]):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    await interaction.response.send_message(embed=create_apply_embed(), view=GuildApplyView())
+    await send_log(interaction.guild, "Guild Apply Setup Sent", f"**Moderator:** {interaction.user.mention}\n**Channel:** {interaction.channel.mention}")
+
+
+@setup_group.command(name="rules", description="Send the rules embed")
+async def slash_setup_rules(interaction: discord.Interaction):
+    if not interaction_has_any_role(interaction, [OBLIVION_ROLE_ID]):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    await interaction.response.send_message(embed=create_rules_embed())
+    await send_log(interaction.guild, "Rules Embed Sent", f"**Moderator:** {interaction.user.mention}\n**Channel:** {interaction.channel.mention}")
+
+
+@setup_group.command(name="suggestions", description="Send the suggestions embed")
+async def slash_setup_suggestions(interaction: discord.Interaction):
+    if not interaction_has_any_role(interaction, [OBLIVION_ROLE_ID]):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    await interaction.response.send_message(embed=create_suggestions_embed())
+    await send_log(interaction.guild, "Suggestions Embed Sent", f"**Moderator:** {interaction.user.mention}\n**Channel:** {interaction.channel.mention}")
+
+
+@setup_group.command(name="contributions", description="Send the contributions embed")
+async def slash_setup_contributions(interaction: discord.Interaction):
+    if not interaction_has_any_role(interaction, [OBLIVION_ROLE_ID]):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    await interaction.response.send_message(embed=create_contributions_embed())
+    await send_log(interaction.guild, "Contributions Embed Sent", f"**Moderator:** {interaction.user.mention}\n**Channel:** {interaction.channel.mention}")
+
+
+@ticket_group.command(name="close", description="Close an application ticket")
+async def slash_ticket_close(interaction: discord.Interaction):
+    if not interaction_has_any_role(interaction, TICKET_STAFF_ROLE_IDS):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    channel = interaction.channel
+    if not channel.topic or "DECAY_APPLICATION_USER:" not in channel.topic:
+        await interaction.response.send_message("this command only works inside an application ticket.", ephemeral=True)
+        return
+    match = re.search(r"DECAY_APPLICATION_USER:(\d+)", channel.topic)
+    user_id = int(match.group(1)) if match else None
+    member = interaction.guild.get_member(user_id) if user_id else None
+    if member:
+        await channel.set_permissions(member, view_channel=False, send_messages=False)
+    if not channel.name.startswith("closed-"):
+        await channel.edit(name=f"closed-{channel.name[:80]}")
+    await interaction.response.send_message(pick("ticketclose"))
+    await send_log(interaction.guild, "Ticket Closed", f"**Closed by:** {interaction.user.mention}\n**Ticket:** {channel.mention}\n**Applicant ID:** `{user_id or 'Unknown'}`")
+
+
+@ticket_group.command(name="delete", description="Delete an application ticket")
+async def slash_ticket_delete(interaction: discord.Interaction):
+    if not interaction_has_any_role(interaction, TICKET_STAFF_ROLE_IDS):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    channel = interaction.channel
+    if not channel.topic or "DECAY_APPLICATION_USER:" not in channel.topic:
+        await interaction.response.send_message("this command only works inside an application ticket.", ephemeral=True)
+        return
+    ticket_name = channel.name
+    ticket_id = channel.id
+    match = re.search(r"DECAY_APPLICATION_USER:(\d+)", channel.topic)
+    user_id = int(match.group(1)) if match else None
+    await send_log(interaction.guild, "Ticket Deleted", f"**Deleted by:** {interaction.user.mention}\n**Ticket:** `#{ticket_name}` (`{ticket_id}`)\n**Applicant ID:** `{user_id or 'Unknown'}`")
+    await interaction.response.send_message(pick("ticketdelete"))
+    await channel.delete(reason=f"Application ticket deleted by {interaction.user}")
+
+
+@mod_group.command(name="timeout", description="Timeout a member")
+@app_commands.describe(user="Member to timeout", duration="Duration like 1h or 2d", reason="Reason")
+async def slash_mod_timeout(interaction: discord.Interaction, user: discord.Member, duration: str, reason: str = None):
+    if not interaction_has_any_role(interaction, BASIC_STAFF_ROLE_IDS):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    if not await check_abuse_limit_slash(interaction, "timeout"):
+        return
+    parsed_duration = parse_duration(duration)
+    if not parsed_duration:
+        await interaction.response.send_message("invalid duration. use `1h`, `6h`, `1d`, or `7d`.", ephemeral=True)
+        return
+    allowed, error = can_punish_slash(interaction, user)
+    if not allowed:
+        await interaction.response.send_message(error, ephemeral=True)
+        return
+    await user.timeout(now_utc() + parsed_duration, reason=reason or f"Timed out by {interaction.user}")
+    log_id = add_mod_log(interaction.guild.id, user.id, interaction.user.id, "TIMEOUT", duration, reason)
+    await interaction.response.send_message(f"{pick('timeout', user=user.mention, duration=duration)} case `#{log_id}`.")
+    await log_mod_action(interaction.guild, "Moderation: Timeout", user, interaction.user, reason, log_id, duration)
+
+
+@mod_group.command(name="untimeout", description="Remove a member timeout")
+@app_commands.describe(user="Member to untimeout", reason="Reason")
+async def slash_mod_untimeout(interaction: discord.Interaction, user: discord.Member, reason: str = None):
+    if not interaction_has_any_role(interaction, BASIC_STAFF_ROLE_IDS):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    allowed, error = can_punish_slash(interaction, user)
+    if not allowed:
+        await interaction.response.send_message(error, ephemeral=True)
+        return
+    await user.timeout(None, reason=reason or f"Timeout removed by {interaction.user}")
+    log_id = add_mod_log(interaction.guild.id, user.id, interaction.user.id, "UNTIMEOUT", None, reason)
+    await interaction.response.send_message(f"{pick('untimeout', user=user.mention)} case `#{log_id}`.")
+    await log_mod_action(interaction.guild, "Moderation: Untimeout", user, interaction.user, reason, log_id)
+
+
+@mod_group.command(name="clear", description="Clear messages")
+@app_commands.describe(amount="Number of messages to delete")
+async def slash_mod_clear(interaction: discord.Interaction, amount: int):
+    if not interaction_has_any_role(interaction, BASIC_STAFF_ROLE_IDS):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    if amount < 1 or amount > 100:
+        await interaction.response.send_message("invalid amount. choose a number between 1 and 100.", ephemeral=True)
+        return
+    await interaction.response.defer()
+    deleted = await interaction.channel.purge(limit=amount)
+    await interaction.followup.send(pick("clear", amount=len(deleted)), wait=True)
+    await send_log(interaction.guild, "Moderation: Clear", f"**Moderator:** {interaction.user.mention}\n**Channel:** {interaction.channel.mention}\n**Messages deleted:** `{len(deleted)}`")
+
+
+@mod_group.command(name="kick", description="Kick a member")
+@app_commands.describe(user="Member to kick", reason="Reason")
+async def slash_mod_kick(interaction: discord.Interaction, user: discord.Member, reason: str = None):
+    if not interaction_has_any_role(interaction, FULL_STAFF_ROLE_IDS):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    if not await check_abuse_limit_slash(interaction, "kick"):
+        return
+    allowed, error = can_punish_slash(interaction, user)
+    if not allowed:
+        await interaction.response.send_message(error, ephemeral=True)
+        return
+    await user.kick(reason=reason or f"Kicked by {interaction.user}")
+    log_id = add_mod_log(interaction.guild.id, user.id, interaction.user.id, "KICK", None, reason)
+    await interaction.response.send_message(f"{pick('kick', user=f'`{user}`')} case `#{log_id}`.")
+    await log_mod_action(interaction.guild, "Moderation: Kick", user, interaction.user, reason, log_id)
+
+
+@mod_group.command(name="ban", description="Ban a user")
+@app_commands.describe(user="User to ban", duration="Optional duration like 7d or 12h", reason="Reason")
+async def slash_mod_ban(interaction: discord.Interaction, user: discord.User, duration: str = None, reason: str = None):
+    if not interaction_has_any_role(interaction, FULL_STAFF_ROLE_IDS):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    if not await check_abuse_limit_slash(interaction, "ban"):
+        return
+    parsed_duration = parse_duration(duration) if duration else None
+    if duration and not parsed_duration:
+        reason = f"{duration} {reason or ''}".strip()
+        duration = None
+    member_target = interaction.guild.get_member(user.id)
+    allowed, error = can_punish_slash(interaction, member_target or user)
+    if not allowed:
+        await interaction.response.send_message(error, ephemeral=True)
+        return
+    await interaction.guild.ban(user, reason=reason or f"Banned by {interaction.user}")
+    if parsed_duration:
+        add_active_tempban(interaction.guild.id, user.id, now_utc() + parsed_duration)
+        log_id = add_mod_log(interaction.guild.id, user.id, interaction.user.id, "TEMP_BAN", duration, reason)
+        await interaction.response.send_message(f"{pick('tempban', user=f'`{user}`', duration=duration)} case `#{log_id}`.")
+        await log_mod_action(interaction.guild, "Moderation: Temporary Ban", user, interaction.user, reason, log_id, duration)
+    else:
+        log_id = add_mod_log(interaction.guild.id, user.id, interaction.user.id, "PERMA_BAN", None, reason)
+        await interaction.response.send_message(f"{pick('permban', user=f'`{user}`')} case `#{log_id}`.")
+        await log_mod_action(interaction.guild, "Moderation: Permanent Ban", user, interaction.user, reason, log_id)
+
+
+@mod_group.command(name="unban", description="Unban a user by ID")
+@app_commands.describe(user_id="User ID to unban", reason="Reason")
+async def slash_mod_unban(interaction: discord.Interaction, user_id: str, reason: str = None):
+    if not interaction_has_any_role(interaction, FULL_STAFF_ROLE_IDS):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    if not user_id.isdigit():
+        await interaction.response.send_message("user ID must be a number.", ephemeral=True)
+        return
+    try:
+        user = await bot.fetch_user(int(user_id))
+        await interaction.guild.unban(user, reason=reason or f"Unbanned by {interaction.user}")
+    except discord.NotFound:
+        await interaction.response.send_message("that user is not banned in this server.", ephemeral=True)
+        return
+    remove_active_tempban(interaction.guild.id, user.id)
+    log_id = add_mod_log(interaction.guild.id, user.id, interaction.user.id, "UNBAN", None, reason)
+    await interaction.response.send_message(f"{pick('unban', user=f'`{user}`')} case `#{log_id}`.")
+    await log_mod_action(interaction.guild, "Moderation: Unban", user, interaction.user, reason, log_id)
+
+
+@mod_group.command(name="modlog", description="Show a user's modlog")
+@app_commands.describe(user="User to check")
+async def slash_mod_modlog(interaction: discord.Interaction, user: discord.User):
+    if not interaction_has_any_role(interaction, BASIC_STAFF_ROLE_IDS):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, action, duration, reason, moderator_id, created_at FROM mod_logs WHERE guild_id = ? AND user_id = ? ORDER BY id DESC LIMIT 10", (interaction.guild.id, user.id))
+    rows = cursor.fetchall()
+    conn.close()
+    if not rows:
+        await interaction.response.send_message("no moderation history found for this user.", ephemeral=True)
+        return
+    embed = make_embed(f"Modlog for {user}", "Latest **10 moderation cases** for this user.")
+    for log_id, action, duration, reason, moderator_id, created_at in rows:
+        date_text = datetime.fromisoformat(created_at).strftime("%Y-%m-%d %H:%M UTC")
+        embed.add_field(name=f"Case #{log_id} — {action}", value=f"**Date:** {date_text}\n**Moderator:** <@{moderator_id}>\n**Duration:** {duration or 'N/A'}\n**Reason:** {reason}", inline=False)
+    await interaction.response.send_message(embed=embed)
+
+
+@mod_group.command(name="case", description="Show a moderation case")
+@app_commands.describe(case_id="Case ID")
+async def slash_mod_case(interaction: discord.Interaction, case_id: int):
+    if not interaction_has_any_role(interaction, BASIC_STAFF_ROLE_IDS):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, moderator_id, action, duration, reason, created_at FROM mod_logs WHERE guild_id = ? AND id = ?", (interaction.guild.id, case_id))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        await interaction.response.send_message("case not found. check the case ID and try again.", ephemeral=True)
+        return
+    user_id, moderator_id, action, duration, reason, created_at = row
+    embed = make_embed(f"Case #{case_id}", "Moderation case details.")
+    embed.add_field(name="User", value=f"<@{user_id}> (`{user_id}`)", inline=False)
+    embed.add_field(name="Action", value=f"**{action}**", inline=True)
+    embed.add_field(name="Duration", value=duration or "N/A", inline=True)
+    embed.add_field(name="Moderator", value=f"<@{moderator_id}>", inline=False)
+    embed.add_field(name="Reason", value=reason or "No reason provided", inline=False)
+    await interaction.response.send_message(embed=embed)
+
+
+@mod_group.command(name="reason", description="Update a moderation case reason")
+@app_commands.describe(case_id="Case ID", new_reason="New reason")
+async def slash_mod_reason(interaction: discord.Interaction, case_id: int, new_reason: str):
+    if not interaction_has_any_role(interaction, FULL_STAFF_ROLE_IDS):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM mod_logs WHERE guild_id = ? AND id = ?", (interaction.guild.id, case_id))
+    if not cursor.fetchone():
+        conn.close()
+        await interaction.response.send_message("case not found. check the case ID and try again.", ephemeral=True)
+        return
+    cursor.execute("UPDATE mod_logs SET reason = ? WHERE guild_id = ? AND id = ?", (new_reason, interaction.guild.id, case_id))
+    conn.commit()
+    conn.close()
+    await interaction.response.send_message(embed=make_embed("Case Reason Updated", f"**Case ID:** `#{case_id}`\n**New reason:** {new_reason}"))
+    await send_log(interaction.guild, "Moderation: Reason Updated", f"**Moderator:** {interaction.user.mention}\n**Case ID:** `#{case_id}`\n**New reason:** {new_reason}")
+
+
+@mod_group.command(name="removelog", description="Remove a moderation case")
+@app_commands.describe(case_id="Case ID")
+async def slash_mod_removelog(interaction: discord.Interaction, case_id: int):
+    if not interaction_has_any_role(interaction, FULL_STAFF_ROLE_IDS):
+        await interaction.response.send_message(random.choice(PHRASES["noperms"]), ephemeral=True)
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM mod_logs WHERE guild_id = ? AND id = ?", (interaction.guild.id, case_id))
+    if not cursor.fetchone():
+        conn.close()
+        await interaction.response.send_message("case not found. check the case ID and try again.", ephemeral=True)
+        return
+    cursor.execute("DELETE FROM mod_logs WHERE guild_id = ? AND id = ?", (interaction.guild.id, case_id))
+    conn.commit()
+    conn.close()
+    await interaction.response.send_message(embed=make_embed("Case Removed", f"**Case ID:** `#{case_id}` has been deleted from the modlog."))
+    await send_log(interaction.guild, "Moderation: Case Removed", f"**Moderator:** {interaction.user.mention}\n**Removed Case ID:** `#{case_id}`")
 
 
 bot.tree.add_command(slash_commands)
-bot.tree.add_command(slash_8ball)
-bot.tree.add_command(slash_rate)
-bot.tree.add_command(slash_level)
-bot.tree.add_command(slash_leaderboard)
+bot.tree.add_command(fun_group)
 bot.tree.add_command(xp_group)
+bot.tree.add_command(setup_group)
+bot.tree.add_command(ticket_group)
+bot.tree.add_command(mod_group)
 
 
 @timeout.error
