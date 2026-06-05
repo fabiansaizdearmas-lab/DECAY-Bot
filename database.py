@@ -86,6 +86,13 @@ async def ensure_db():
     return await get_pool()
 
 
+async def db_health_check():
+    db_pool = await ensure_db()
+    async with db_pool.acquire() as conn:
+        value = await conn.fetchval("SELECT 1")
+    return value == 1
+
+
 async def add_mod_log(guild_id, user_id, moderator_id, action, duration=None, reason=None):
     db_pool = await ensure_db()
     async with db_pool.acquire() as conn:
