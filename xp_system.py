@@ -50,7 +50,7 @@ async def update_xp_role(member, level):
 
 
 async def level_text(guild, target):
-    xp, level_value = get_xp_data(guild.id, target.id)
+    xp, level_value = await get_xp_data(guild.id, target.id)
     progress, needed = xp_progress(xp, level_value)
     rank = xp_rank_name(level_value)
     rank_text = f" | rank: {rank}" if rank else ""
@@ -59,8 +59,8 @@ async def level_text(guild, target):
     return f"{target.mention} is level {level_value}{rank_text}. XP: {progress}/{needed} until level {level_value + 1}."
 
 
-def leaderboard_text(guild):
-    rows = get_xp_leaderboard(guild.id, 10)
+async def leaderboard_text(guild):
+    rows = await get_xp_leaderboard(guild.id, 10)
     if not rows:
         return "leaderboard is empty. chat XP economy has not started yet."
     lines = [f"{index}. <@{user_id}> — Level {level_value} | {xp} XP" for index, (user_id, xp, level_value) in enumerate(rows, start=1)]
@@ -73,5 +73,5 @@ def calculate_new_xp(current_xp):
     return new_xp, new_level
 
 
-def save_xp(guild_id, user_id, xp, level):
-    set_xp_data(guild_id, user_id, xp, level)
+async def save_xp(guild_id, user_id, xp, level):
+    await set_xp_data(guild_id, user_id, xp, level)
