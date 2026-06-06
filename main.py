@@ -2,6 +2,7 @@ import os
 import random
 import re
 
+import asyncpg
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -39,6 +40,7 @@ from config import (
 from database import (
     add_active_tempban,
     add_mod_log,
+    db_health_check,
     delete_case,
     delete_tempban_by_id,
     get_case,
@@ -82,6 +84,7 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.slash_synced = False
+bot.db_ready = False
 
 fun_group = app_commands.Group(name="fun", description="Fun commands")
 xp_group = app_commands.Group(name="xp", description="XP system commands")
@@ -90,8 +93,16 @@ ticket_group = app_commands.Group(name="ticket", description="Ticket commands")
 mod_group = app_commands.Group(name="mod", description="Moderation commands")
 
 
+def db_error_text(error):
+    if isinstance(error, RuntimeError) and "DATABASE_URL" in str(error):
+        return "PostgreSQL is not connected. Add `DATABASE_URL` to the bot service variables in Railway."
+    if isinstance(error, (asyncpg.PostgresError, OSError, ConnectionError)):
+        return "PostgreSQL connection failed. Check Railway Postgres variables and redeploy the bot."
+    return "unexpected error. the bot tripped over a cable or something."
+
+
 async def send_log(guild, title, description, color=None):
-    channel = guild.get_channel(LOG_CHANNEL_ID)
+    channel = guild.get_channel(LOG_CHANNEL_ID) if guild else None
     if not channel:
         return
     embed = make_embed(title, description, color or 0xB30000)
@@ -165,29 +176,33 @@ async def handle_xp(message):
         return
     if message.content.startswith("!"):
         return
-    if await is_xp_channel_disabled(message.guild.id, message.channel.id):
-        return
+    try:
+        if await is_xp_channel_disabled(message.guild.id, message.channel.id):
+            return
 
-    key = (message.guild.id, message.author.id)
-    last_time = last_xp_times.get(key)
-    if last_time and now_utc() - last_time < XP_COOLDOWN:
-        return
+        key = (message.guild.id, message.author.id)
+        last_time = last_xp_times.get(key)
+        if last_time and now_utc() - last_time < XP_COOLDOWN:
+            return
 
-    xp, old_level = await get_xp_data(message.guild.id, message.author.id)
-    if old_level >= MAX_LEVEL:
-        return
+        xp, old_level = await get_xp_data(message.guild.id, message.author.id)
+        if old_level >= MAX_LEVEL:
+            return
 
-    new_xp, new_level = calculate_new_xp(xp)
-    await set_xp_data(message.guild.id, message.author.id, new_xp, new_level)
-    last_xp_times[key] = now_utc()
+        new_xp, new_level = calculate_new_xp(xp)
+        await set_xp_data(message.guild.id, message.author.id, new_xp, new_level)
+        last_xp_times[key] = now_utc()
 
-    if new_level > old_level:
-        await update_xp_role(message.author, new_level)
-        bot_channel = message.guild.get_channel(BOT_COMMANDS_CHANNEL_ID)
-        if bot_channel:
-            rank = xp_rank_name(new_level)
-            rank_text = f" and became **{rank}**" if rank else ""
-            await bot_channel.send(pick("levelup", user=message.author.mention, level=new_level) + rank_text)
+        if new_level > old_level:
+            await update_xp_role(message.author, new_level)
+            bot_channel = message.guild.get_channel(BOT_COMMANDS_CHANNEL_ID)
+            if bot_channel:
+                rank = xp_rank_name(new_level)
+                rank_text = f" and became **{rank}**" if rank else ""
+                await bot_channel.send(pick("levelup", user=message.author.mention, level=new_level) + rank_text)
+    except Exception as error:
+        bot.db_ready = False
+        print(f"XP error: {error}")
 
 
 async def send_modlog_message(send_func, guild, target):
@@ -301,7 +316,14 @@ class GuildApplyView(discord.ui.View):
 
 @bot.event
 async def on_ready():
-    await init_db()
+    try:
+        await init_db()
+        bot.db_ready = True
+        print("PostgreSQL connected and tables ready.")
+    except Exception as error:
+        bot.db_ready = False
+        print(f"PostgreSQL init failed: {error}")
+
     bot.add_view(GuildApplyView())
     if not check_temp_bans.is_running():
         check_temp_bans.start()
@@ -375,7 +397,14 @@ async def on_message(message):
 
 @tasks.loop(minutes=1)
 async def check_temp_bans():
-    for punishment_id, guild_id, user_id, expires_at in await get_temp_bans():
+    try:
+        temp_bans = await get_temp_bans()
+    except Exception as error:
+        bot.db_ready = False
+        print(f"Tempban check failed: {error}")
+        return
+
+    for punishment_id, guild_id, user_id, expires_at in temp_bans:
         if expires_at <= now_utc():
             guild = bot.get_guild(guild_id)
             if guild:
@@ -398,6 +427,19 @@ async def ping(ctx):
 @bot.command(name="commands")
 async def commands_list(ctx):
     await ctx.send(embed=create_commands_embed())
+
+
+@bot.command()
+@setup_only()
+async def dbcheck(ctx):
+    try:
+        ok = await db_health_check()
+        bot.db_ready = ok
+        await ctx.send("PostgreSQL connected. database is alive." if ok else "PostgreSQL responded weirdly. check Railway.")
+    except Exception as error:
+        bot.db_ready = False
+        await ctx.send(db_error_text(error))
+        print(f"DB check failed: {error}")
 
 
 @bot.command(name="8ball")
@@ -995,35 +1037,37 @@ bot.tree.add_command(ticket_group)
 bot.tree.add_command(mod_group)
 
 
-@timeout.error
-@untimeout.error
-@kick.error
-@ban.error
-@unban.error
-@clear.error
-@modlog.error
-@view_case.error
-@reason.error
-@removelog.error
-@guildapplysetup.error
-@rulesembed.error
-@suggestionsembed.error
-@contributionsembed.error
-@ticketclose.error
-@ticketdelete.error
-@xpchanneloff.error
-@xpchannelon.error
-@xpexcluded.error
-async def command_error(ctx, error):
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
     if isinstance(error, commands.CheckFailure):
         await ctx.send(random_phrase("noperms"))
-    elif isinstance(error, commands.BadArgument):
+        return
+    if isinstance(error, commands.BadArgument):
         await ctx.send("invalid argument type. check the command format and try again.")
-    elif isinstance(error, commands.MissingRequiredArgument):
+        return
+    if isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(random_phrase("missing"))
-    else:
-        await ctx.send("unexpected error. the bot tripped over a cable or something.")
-        raise error
+        return
+
+    original = getattr(error, "original", error)
+    await ctx.send(db_error_text(original))
+    print(f"Command error in {getattr(ctx.command, 'name', 'unknown')}: {original}")
+
+
+@bot.tree.error
+async def on_app_command_error(interaction, error):
+    original = getattr(error, "original", error)
+    message = db_error_text(original)
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    except discord.DiscordException:
+        pass
+    print(f"Slash command error: {original}")
 
 
 key_name = "DISCORD" + "_" + "T0KEN".replace("0", "O")
